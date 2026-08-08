@@ -118,7 +118,7 @@ def normalize_job(attrs, current_user):
     user = attrs.get("job-originating-user-name", "")
 
     pages = attrs.get("job-media-sheets")
-    if pages is None:
+    if not pages:
         impressions = attrs.get("job-impressions-completed")
         pages = impressions if impressions else None
 
