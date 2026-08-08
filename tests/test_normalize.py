@@ -212,6 +212,23 @@ class SummaryTest(unittest.TestCase):
                      "stateReasons": ["media-empty"], "supplies": []}]
         self.assertEqual(gn.summarize(printers, [], 15)["errorPrinters"], 1)
 
+    def test_error_reasons_match_across_severity_suffixes(self):
+        # IPP appends severity suffixes to state reasons. Entries in
+        # ERROR_REASONS are base reasons; the suffix is stripped before
+        # matching, so every severity of the same condition must classify
+        # identically.
+        for reason in ("media-jam", "media-empty-warning", "cover-open-report",
+                       "offline", "offline-report", "offline-warning"):
+            printer = {"name": "p", "state": "idle",
+                       "stateReasons": [reason], "supplies": []}
+            self.assertTrue(gn.has_error(printer), reason)
+
+    def test_benign_reasons_are_not_errors(self):
+        for reason in ("none", "", "toner-low-warning", "media-needed-report-ok"):
+            printer = {"name": "p", "state": "idle",
+                       "stateReasons": [reason], "supplies": []}
+            self.assertFalse(gn.has_error(printer), reason)
+
 
 class BuildSnapshotTest(unittest.TestCase):
     def test_assembles_full_snapshot_from_fixtures(self):

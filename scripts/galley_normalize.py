@@ -137,9 +137,11 @@ def normalize_job(attrs, current_user):
 
 
 # Reasons that mean a human has to walk to the printer.
+# Entries are base reasons; severity suffixes (-report, -warning, -error)
+# are stripped before matching, so all severity variants match uniformly.
 ERROR_REASONS = frozenset([
     "media-jam", "media-empty", "media-needed", "toner-empty",
-    "marker-supply-empty", "offline-report", "door-open", "cover-open",
+    "marker-supply-empty", "offline", "offline-report", "door-open", "cover-open",
     "input-tray-missing", "output-area-full", "shutdown",
 ])
 
