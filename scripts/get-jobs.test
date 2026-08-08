@@ -1,0 +1,15 @@
+{
+  NAME "Get active jobs"
+  OPERATION Get-Jobs
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR language attributes-natural-language en
+  ATTR uri printer-uri $uri
+  # Without requesting-user-name, cupsd applies JobPrivateValues and redacts
+  # job-name / job-originating-user-name from the response.
+  ATTR name requesting-user-name $user
+  ATTR keyword which-jobs not-completed
+  ATTR boolean my-jobs false
+  ATTR keyword requested-attributes job-id,job-name,job-state,job-state-reasons,job-originating-user-name,job-printer-uri,job-impressions-completed,job-media-sheets,job-k-octets,time-at-creation,job-priority
+  STATUS successful-ok
+}
