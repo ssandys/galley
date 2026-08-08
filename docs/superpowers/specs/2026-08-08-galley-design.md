@@ -388,6 +388,20 @@ prefix (`localPluginIdForPath`). A symlinked source tree would be *discovered*
    data-driven from day one.
 3. **Completed-job history** with timestamps. Reprint is **not** viable without
    a server-side change — `PreserveJobFiles` is unset on this machine.
+4. **Preflight dependency check.** A `bin/preflight` script that verifies every
+   external program Galley calls is present, maps each missing one to its Arch
+   package, and prints the `omarchy pkg add` line that fixes it. Paired with a
+   `cupsd: "missing-deps"` state in the collector so the panel can render an
+   actionable strip, plus a **once-per-detection** desktop notification — never
+   one per poll. Deferred from the MVP as scope; v1 surfaces a missing tool as
+   an ordinary collector error, and the README lists the prerequisites so they
+   can be checked by hand.
+
+   Verified package ownership, for whoever builds this: `ipptool`, `cancel`,
+   `cupsenable`, `cupsdisable` → `cups`; `notify-send` → `libnotify`;
+   `systemctl` → `systemd`; `rsync` → `rsync`; `inotifywait` → `inotify-tools`;
+   `jq` → `jq`; `node` → `nodejs`. `python3` and `node` may be mise-managed and
+   therefore unowned by pacman, which is expected.
 
 ## Known limitations
 
