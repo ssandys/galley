@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Run every test suite. Python uses stdlib unittest: the active python3 is
+# mise-managed and has no pytest.
+set -euo pipefail
+
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$SRC"
+
+echo "== manifest =="
+jq -e . manifest.json >/dev/null && echo "  valid json"
+
+echo "== bash syntax =="
+bash -n bin/install bin/dev-watch bin/test
+[ -f scripts/galley_action.sh ] && bash -n scripts/galley_action.sh
+echo "  ok"
+
+echo "== python =="
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+echo "== javascript =="
+if [ -f tests/model.test.js ]; then node --test tests/model.test.js; fi
