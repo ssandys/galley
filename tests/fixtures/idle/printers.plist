@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>ipptoolVersion</key>
+<string>CUPS v2.4.19</string>
+<key>Transfer</key>
+<string>auto</string>
+<key>Tests</key>
+<array>
+<dict>
+<key>Name</key>
+<string>Get printers</string>
+<key>Version</key>
+<string>1.1</string>
+<key>Operation</key>
+<string>CUPS-Get-Printers</string>
+<key>RequestId</key>
+<integer>51512</integer>
+<key>RequestAttributes</key>
+<array>
+<dict>
+<key>attributes-charset</key>
+<string>utf-8</string>
+<key>attributes-natural-language</key>
+<string>en</string>
+<key>requested-attributes</key>
+<array>
+<string>printer-name</string>
+<string>printer-state</string>
+<string>printer-state-reasons</string>
+<string>printer-state-message</string>
+<string>printer-is-accepting-jobs</string>
+<string>printer-info</string>
+<string>printer-location</string>
+<string>printer-make-and-model</string>
+<string>queued-job-count</string>
+<string>marker-names</string>
+<string>marker-levels</string>
+<string>marker-types</string>
+<string>marker-colors</string>
+<string>printer-uri-supported</string>
+</array>
+</dict>
+</array>
+<key>Successful</key>
+<true />
+<key>StatusCode</key>
+<string>successful-ok</string>
+<key>ResponseAttributes</key>
+<array>
+<dict>
+<key>attributes-charset</key>
+<string>utf-8</string>
+<key>attributes-natural-language</key>
+<string>en</string>
+</dict>
+<dict>
+<key>printer-is-accepting-jobs</key>
+<true />
+<key>printer-state</key>
+<integer>3</integer>
+<key>printer-state-message</key>
+<string></string>
+<key>printer-state-reasons</key>
+<string>none</string>
+<key>printer-uri-supported</key>
+<string>ipp://localhost:631/printers/Brother@Home</string>
+<key>queued-job-count</key>
+<integer>0</integer>
+<key>printer-name</key>
+<string>Brother@Home</string>
+<key>printer-location</key>
+<string>Home</string>
+<key>printer-info</key>
+<string>Brother MFC-9560CDW</string>
+<key>marker-colors</key>
+<array>
+<string>#000000</string>
+<string>#00FFFF</string>
+<string>#FFFF00</string>
+<string>#FF00FF</string>
+<string>none</string>
+<string>none</string>
+<string>none</string>
+</array>
+<key>marker-levels</key>
+<array>
+<integer>-1</integer>
+<integer>-1</integer>
+<integer>-1</integer>
+<integer>-1</integer>
+<integer>-1</integer>
+<integer>83</integer>
+<integer>76</integer>
+</array>
+<key>marker-names</key>
+<array>
+<string>Black Toner Cartridge</string>
+<string>Cyan Toner Cartridge</string>
+<string>Magenta Toner Cartridge</string>
+<string>Yellow Toner Cartridge</string>
+<string>Waste Toner Box</string>
+<string>Belt Unit</string>
+<string>Drum Unit</string>
+</array>
+<key>marker-types</key>
+<array>
+<string>toner</string>
+<string>toner</string>
+<string>toner</string>
+<string>toner</string>
+<string>waste-toner</string>
+<string>other</string>
+<string>opc</string>
+</array>
+<key>printer-make-and-model</key>
+<string>Brother MFC-9560CDW CUPS</string>
+</dict>
+<dict>
+<key>printer-is-accepting-jobs</key>
+<true />
+<key>printer-state</key>
+<integer>3</integer>
+<key>printer-state-message</key>
+<string></string>
+<key>printer-state-reasons</key>
+<string>none</string>
+<key>printer-uri-supported</key>
+<string>ipp://localhost:631/printers/Canon@OLP</string>
+<key>queued-job-count</key>
+<integer>0</integer>
+<key>printer-name</key>
+<string>Canon@OLP</string>
+<key>printer-location</key>
+<string>One Liberty</string>
+<key>printer-info</key>
+<string>Canon iR-ADV C3830 UFR II</string>
+<key>marker-colors</key>
+<array>
+<string>#000000</string>
+<string>#00FFFF</string>
+<string>#FF00FF</string>
+<string>#FFFF00</string>
+</array>
+<key>marker-levels</key>
+<array>
+<integer>41</integer>
+<integer>38</integer>
+<integer>48</integer>
+<integer>56</integer>
+<integer>40</integer>
+<integer>79</integer>
+<integer>84</integer>
+<integer>84</integer>
+<integer>84</integer>
+<integer>92</integer>
+<integer>99</integer>
+</array>
+<key>marker-names</key>
+<array>
+<string>Canon GPR-53 Black Toner</string>
+<string>Canon GPR-53 Cyan Toner</string>
+<string>Canon GPR-53 Magenta To</string>
+<string>Canon GPR-53 Yellow Ton</string>
+</array>
+<key>marker-types</key>
+<array>
+<string>toner</string>
+<string>toner</string>
+<string>toner</string>
+<string>toner</string>
+</array>
+<key>printer-make-and-model</key>
+<string>Canon iR-ADV C3830 UFR II</string>
+</dict>
+</array>
+</dict>
+</array>
+<key>Successful</key>
+<true />
+</dict>
+</plist>

@@ -7,3 +7,13 @@
   ATTR keyword requested-attributes printer-name,printer-state,printer-state-reasons,printer-state-message,printer-is-accepting-jobs,printer-info,printer-location,printer-make-and-model,queued-job-count,marker-names,marker-levels,marker-types,marker-colors,printer-uri-supported
   STATUS successful-ok
 }
+
+{
+  NAME "Get default printer"
+  OPERATION CUPS-Get-Default
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR language attributes-natural-language en
+  ATTR keyword requested-attributes printer-name
+  STATUS successful-ok
+}
