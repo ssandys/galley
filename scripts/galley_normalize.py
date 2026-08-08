@@ -134,3 +134,59 @@ def normalize_job(attrs, current_user):
         "createdAt": attrs.get("time-at-creation", 0),
         "mine": bool(user) and user == current_user,
     }
+
+
+# Reasons that mean a human has to walk to the printer.
+ERROR_REASONS = frozenset([
+    "media-jam", "media-empty", "media-needed", "toner-empty",
+    "marker-supply-empty", "offline-report", "door-open", "cover-open",
+    "input-tray-missing", "output-area-full", "shutdown",
+])
+
+
+def has_error(printer):
+    if printer.get("state") == "stopped":
+        return True
+    for reason in printer.get("stateReasons", []):
+        # Reasons carry severity suffixes: 'media-empty-warning'.
+        base = str(reason).rsplit("-", 1)[0] if str(reason).endswith(
+            ("-report", "-warning", "-error")) else str(reason)
+        if base in ERROR_REASONS or str(reason) in ERROR_REASONS:
+            return True
+    return False
+
+
+def low_supplies(printer, threshold):
+    """Supplies below the warning threshold.
+
+    waste-toner is excluded: IPP does not define whether its level means
+    percent full or percent remaining, and vendors disagree.
+    """
+    return [s for s in printer.get("supplies", [])
+            if s.get("type") != "waste-toner" and s.get("level", 100) < threshold]
+
+
+def summarize(printers, jobs, threshold):
+    return {
+        "printers": len(printers),
+        "activeJobs": len(jobs),
+        "errorPrinters": sum(1 for p in printers if has_error(p)),
+        "lowSupplies": sum(len(low_supplies(p, threshold)) for p in printers),
+    }
+
+
+def build_snapshot(printers=None, jobs=None, default_printer="",
+                   current_user="", cupsd="running", threshold=15, error=None):
+    normalized_printers = [normalize_printer(p, default_printer)
+                           for p in (printers or [])]
+    normalized_jobs = [normalize_job(j, current_user) for j in (jobs or [])]
+
+    return {
+        "schema": 1,
+        "cupsd": cupsd,
+        "error": error,
+        "defaultPrinter": default_printer,
+        "printers": normalized_printers,
+        "jobs": normalized_jobs,
+        "summary": summarize(normalized_printers, normalized_jobs, threshold),
+    }

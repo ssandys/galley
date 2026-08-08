@@ -180,5 +180,77 @@ class JobTest(unittest.TestCase):
         self.assertEqual(gn.job_state_name(9), "completed")
 
 
+class SummaryTest(unittest.TestCase):
+    def test_counts_printers_jobs_and_errors(self):
+        printers = [
+            {"name": "a", "state": "idle", "stateReasons": ["none"], "supplies": []},
+            {"name": "b", "state": "stopped", "stateReasons": ["media-jam"],
+             "supplies": [{"name": "K", "type": "toner", "level": 4}]},
+        ]
+        jobs = [{"id": 1}, {"id": 2}, {"id": 3}]
+        summary = gn.summarize(printers, jobs, 15)
+        self.assertEqual(summary, {
+            "printers": 2, "activeJobs": 3, "errorPrinters": 1, "lowSupplies": 1,
+        })
+
+    def test_waste_toner_never_counts_as_low(self):
+        # IPP does not define whether a waste level means full or remaining,
+        # and vendors disagree, so it is displayed but never alerted on.
+        printers = [{
+            "name": "a", "state": "idle", "stateReasons": ["none"],
+            "supplies": [{"name": "Waste", "type": "waste-toner", "level": 2}],
+        }]
+        self.assertEqual(gn.summarize(printers, [], 15)["lowSupplies"], 0)
+
+    def test_stopped_printer_counts_as_error_even_without_reason(self):
+        printers = [{"name": "a", "state": "stopped",
+                     "stateReasons": ["none"], "supplies": []}]
+        self.assertEqual(gn.summarize(printers, [], 15)["errorPrinters"], 1)
+
+    def test_idle_printer_with_error_reason_counts(self):
+        printers = [{"name": "a", "state": "idle",
+                     "stateReasons": ["media-empty"], "supplies": []}]
+        self.assertEqual(gn.summarize(printers, [], 15)["errorPrinters"], 1)
+
+
+class BuildSnapshotTest(unittest.TestCase):
+    def test_assembles_full_snapshot_from_fixtures(self):
+        printers = gn.response_groups(load("printers-busy.plist")["Tests"][0])
+        jobs = gn.response_groups(load("jobs-held.plist")["Tests"][0])
+
+        snapshot = gn.build_snapshot(
+            printers=printers, jobs=jobs, default_printer="Canon@OLP",
+            current_user="sean", cupsd="running", threshold=15,
+        )
+
+        self.assertEqual(snapshot["schema"], 1)
+        self.assertEqual(snapshot["cupsd"], "running")
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual(snapshot["defaultPrinter"], "Canon@OLP")
+        self.assertEqual(len(snapshot["printers"]), 2)
+        self.assertEqual(len(snapshot["jobs"]), 3)
+        self.assertEqual(snapshot["summary"]["activeJobs"], 3)
+        self.assertEqual(snapshot["summary"]["printers"], 2)
+
+    def test_asleep_snapshot_has_no_printers_and_no_error(self):
+        snapshot = gn.build_snapshot(cupsd="asleep")
+        self.assertEqual(snapshot["cupsd"], "asleep")
+        self.assertEqual(snapshot["printers"], [])
+        self.assertEqual(snapshot["jobs"], [])
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual(snapshot["summary"]["activeJobs"], 0)
+
+    def test_error_snapshot_carries_message(self):
+        snapshot = gn.build_snapshot(cupsd="error", error="ipptool timed out")
+        self.assertEqual(snapshot["cupsd"], "error")
+        self.assertEqual(snapshot["error"], "ipptool timed out")
+
+    def test_snapshot_is_json_serializable(self):
+        import json
+        printers = gn.response_groups(load("printers-idle.plist")["Tests"][0])
+        snapshot = gn.build_snapshot(printers=printers, default_printer="Canon@OLP")
+        json.loads(json.dumps(snapshot))
+
+
 if __name__ == "__main__":
     unittest.main()
