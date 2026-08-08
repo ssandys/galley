@@ -100,5 +100,73 @@ class PrinterTest(unittest.TestCase):
         self.assertEqual(gn.printer_state_name(99), "unknown")
 
 
+class PrinterFromUriTest(unittest.TestCase):
+    def test_extracts_trailing_segment(self):
+        uri = "ipp://localhost:631/printers/Canon@OLP"
+        self.assertEqual(gn.printer_from_uri(uri), "Canon@OLP")
+
+    def test_tolerates_trailing_slash(self):
+        uri = "ipp://localhost:631/printers/Brother@Home/"
+        self.assertEqual(gn.printer_from_uri(uri), "Brother@Home")
+
+    def test_empty_uri_is_empty_string(self):
+        self.assertEqual(gn.printer_from_uri(None), "")
+
+
+class JobTest(unittest.TestCase):
+    def test_normalizes_real_held_jobs(self):
+        groups = gn.response_groups(load("jobs-held.plist")["Tests"][0])
+        jobs = [gn.normalize_job(g, "sean") for g in groups]
+
+        self.assertEqual(len(jobs), 3)
+        first = jobs[0]
+        self.assertEqual(first["id"], 53)
+        self.assertEqual(first["name"], "report.pdf")
+        self.assertEqual(first["printer"], "Canon@OLP")
+        self.assertEqual(first["user"], "sean")
+        self.assertEqual(first["state"], "held")
+        self.assertEqual(first["stateReasons"], ["job-hold-until-specified"])
+        self.assertEqual(first["sizeKb"], 1)
+        self.assertTrue(first["mine"])
+        self.assertEqual([j["printer"] for j in jobs],
+                         ["Canon@OLP", "Canon@OLP", "Brother@Home"])
+
+    def test_pages_none_until_printing(self):
+        # job-media-sheets is not returned by either printer and
+        # job-impressions-completed is 0 until the job actually prints.
+        groups = gn.response_groups(load("jobs-held.plist")["Tests"][0])
+        self.assertIsNone(gn.normalize_job(groups[0], "sean")["pages"])
+
+    def test_pages_reported_once_known(self):
+        attrs = {"job-id": 1, "job-impressions-completed": 4}
+        self.assertEqual(gn.normalize_job(attrs, "sean")["pages"], 4)
+
+    def test_media_sheets_preferred_when_present(self):
+        attrs = {"job-id": 1, "job-media-sheets": 9,
+                 "job-impressions-completed": 4}
+        self.assertEqual(gn.normalize_job(attrs, "sean")["pages"], 9)
+
+    def test_foreign_job_is_not_mine(self):
+        attrs = {"job-id": 7, "job-originating-user-name": "someone-else"}
+        self.assertFalse(gn.normalize_job(attrs, "sean")["mine"])
+
+    def test_redacted_job_name_falls_back(self):
+        # Without requesting-user-name cupsd omits job-name entirely.
+        attrs = {"job-id": 42}
+        job = gn.normalize_job(attrs, "sean")
+        self.assertEqual(job["name"], "Job 42")
+        self.assertEqual(job["user"], "")
+
+    def test_empty_queue_yields_no_jobs(self):
+        groups = gn.response_groups(load("jobs-empty.plist")["Tests"][0])
+        self.assertEqual(groups, [])
+
+    def test_state_names(self):
+        self.assertEqual(gn.job_state_name(3), "pending")
+        self.assertEqual(gn.job_state_name(4), "held")
+        self.assertEqual(gn.job_state_name(5), "processing")
+        self.assertEqual(gn.job_state_name(9), "completed")
+
+
 if __name__ == "__main__":
     unittest.main()

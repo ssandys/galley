@@ -100,3 +100,37 @@ def normalize_printer(attrs, default_printer):
         "queuedJobCount": attrs.get("queued-job-count", 0),
         "supplies": normalize_supplies(attrs),
     }
+
+
+def printer_from_uri(uri):
+    """Printer name from a job-printer-uri.
+
+    Jobs carry no printer-name attribute, so the queue name comes from the
+    last path segment. Names may contain '@', as in 'Canon@OLP'.
+    """
+    if not uri:
+        return ""
+    return str(uri).rstrip("/").rsplit("/", 1)[-1]
+
+
+def normalize_job(attrs, current_user):
+    job_id = attrs.get("job-id", 0)
+    user = attrs.get("job-originating-user-name", "")
+
+    pages = attrs.get("job-media-sheets")
+    if pages is None:
+        impressions = attrs.get("job-impressions-completed")
+        pages = impressions if impressions else None
+
+    return {
+        "id": job_id,
+        "name": attrs.get("job-name") or "Job %s" % job_id,
+        "printer": printer_from_uri(attrs.get("job-printer-uri")),
+        "user": user,
+        "state": job_state_name(attrs.get("job-state")),
+        "stateReasons": as_list(attrs.get("job-state-reasons")),
+        "pages": pages,
+        "sizeKb": attrs.get("job-k-octets", 0),
+        "createdAt": attrs.get("time-at-creation", 0),
+        "mine": bool(user) and user == current_user,
+    }
