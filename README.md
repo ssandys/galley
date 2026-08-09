@@ -4,18 +4,14 @@ Galley is an Omarchy shell bar widget that shows the state of every CUPS
 printer and the active print queue, and lets you act on both without leaving
 the bar.
 
-Print failures on Linux are silent: a job vanishes, a printer quietly stops
-because of `ErrorPolicy=stop-printer`, and nothing tells you until you walk
-over and find a blinking light. Galley puts that state in the bar — idle vs.
-printing vs. stopped, supply levels, who owns what's queued — and lets you
-cancel a job or pause/resume a queue on the spot.
+![The Galley panel open below the bar: a header reading "2 printers · 0 jobs",
+printer cards for Brother@Home and Canon@OLP — both idle, each showing supply
+levels, a job count, and a pause button — and an empty QUEUE section reading
+"No active jobs"](docs/panel.png)
 
-> **Screenshot:** not included yet. This needs a human at the keyboard and a
-> queue with a job or two sitting in it — open the panel
-> (`omarchy-shell shell toggle ssandys.galley` or click the bar icon), run
-> `omarchy capture screenshot`, and save the PNG as `docs/panel.png`. Once it
-> exists, reference it here as:
-> `![Galley panel with two printer cards and a filtered queue](docs/panel.png)`
+Above: the calm state — both printers idle, nothing queued. The bar glyph is
+plain (no count badge), and the panel footer spells out the two keys that
+matter, `r` and `Esc`.
 
 ## Prerequisites
 
