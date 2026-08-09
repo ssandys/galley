@@ -192,6 +192,9 @@ def build_snapshot(printers=None, jobs=None, default_printer="",
                    current_user="", cupsd="running", threshold=15, error=None):
     normalized_printers = [normalize_printer(p, default_printer)
                            for p in (printers or [])]
+    # The default printer leads; the rest follow alphabetically so the order is
+    # stable across polls rather than however CUPS happened to return them.
+    normalized_printers.sort(key=lambda p: (not p["isDefault"], p["name"].lower()))
     normalized_jobs = [normalize_job(j, current_user) for j in (jobs or [])]
 
     return {

@@ -129,16 +129,18 @@ test("barSeverity is normal while cupsd sleeps", () => {
     summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 } }), "normal")
 })
 
-test("tooltipText summarizes printers and jobs", () => {
+test("tooltipText summarizes printers and jobs without a name prefix", () => {
   const text = Model.tooltipText(SNAPSHOT)
   assert.match(text, /2 printers/)
   assert.match(text, /2 jobs/)
+  assert.doesNotMatch(text, /Galley/)
 })
 
 test("tooltipText reports a sleeping daemon plainly", () => {
   const text = Model.tooltipText({ cupsd: "asleep", printers: [], jobs: [],
     summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 } })
   assert.match(text, /idle/i)
+  assert.doesNotMatch(text, /Galley/)
 })
 
 const ALL_ON = {

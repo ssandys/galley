@@ -17,7 +17,7 @@ Panel {
   property bool loading: false
   property string selectedPrinter: ""
 
-  readonly property string barIcon: "󰐪"
+  readonly property string barIcon: "\uf02f"
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
@@ -583,7 +583,9 @@ Panel {
 
                 Text {
                   text: Model.jobGlyph(modelData.state)
-                  color: modelData.state === "processing" ? "#3b82f6" : root.dim
+                  // Accent, not a semantic error/warning colour: a printing job
+                  // is normal activity, and this follows the user's theme.
+                  color: modelData.state === "processing" ? Color.accent : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }

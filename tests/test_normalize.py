@@ -290,5 +290,26 @@ class CrossLanguageErrorReasonsTest(unittest.TestCase):
         self.assertEqual(js_reasons, set(gn.ERROR_REASONS))
 
 
+class PrinterOrderTest(unittest.TestCase):
+    def test_default_printer_sorts_first(self):
+        printers = [{"printer-name": "Zebra"}, {"printer-name": "Alpha"},
+                    {"printer-name": "Mid"}]
+        snapshot = gn.build_snapshot(printers=printers, default_printer="Mid")
+        self.assertEqual([p["name"] for p in snapshot["printers"]],
+                         ["Mid", "Alpha", "Zebra"])
+
+    def test_without_a_default_order_is_alphabetical(self):
+        printers = [{"printer-name": "Zebra"}, {"printer-name": "Alpha"}]
+        snapshot = gn.build_snapshot(printers=printers, default_printer="")
+        self.assertEqual([p["name"] for p in snapshot["printers"]],
+                         ["Alpha", "Zebra"])
+
+    def test_sort_is_case_insensitive(self):
+        printers = [{"printer-name": "beta"}, {"printer-name": "Alpha"}]
+        snapshot = gn.build_snapshot(printers=printers, default_printer="")
+        self.assertEqual([p["name"] for p in snapshot["printers"]],
+                         ["Alpha", "beta"])
+
+
 if __name__ == "__main__":
     unittest.main()

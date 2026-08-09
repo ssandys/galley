@@ -169,9 +169,9 @@ function plural(count, word) {
 }
 
 function tooltipText(snapshot) {
-  if (!snapshot) return "Galley"
-  if (snapshot.cupsd === "asleep") return "Galley — CUPS idle, nothing queued"
-  if (snapshot.cupsd === "error") return "Galley — " + (snapshot.error || "collector failed")
+  if (!snapshot) return "Printers"
+  if (snapshot.cupsd === "asleep") return "CUPS idle, nothing queued"
+  if (snapshot.cupsd === "error") return snapshot.error || "Collector failed"
 
   var summary = snapshot.summary || {}
   var parts = [plural(summary.printers || 0, "printer")]
@@ -186,7 +186,7 @@ function tooltipText(snapshot) {
 
   parts.push(plural(summary.activeJobs || 0, "job"))
   if (summary.errorPrinters > 0) parts.push(plural(summary.errorPrinters, "error"))
-  return "Galley — " + parts.join(" · ")
+  return parts.join(" · ")
 }
 
 var SUPPLY_REARM_MARGIN = 10
