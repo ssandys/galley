@@ -30,6 +30,8 @@ Panel {
   readonly property int supplyThreshold: settingValue("supplyLowThreshold", 15)
   readonly property bool showSupplies: settingValue("showSupplies", true) === true
 
+  property bool pendingRefresh: false
+
   function pathFromUrl(url) {
     var value = String(url || "")
     if (value.indexOf("file://") === 0) return decodeURIComponent(value.substring(7))
@@ -37,7 +39,13 @@ Panel {
   }
 
   function refresh() {
-    if (collectProc.running) return
+    // A request arriving mid-flight is coalesced rather than dropped; the
+    // in-flight run re-triggers it on completion.
+    if (collectProc.running) {
+      pendingRefresh = true
+      return
+    }
+    pendingRefresh = false
     loading = true
     collectProc.command = ["python3",
       pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py")),
@@ -61,6 +69,14 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.handleOutput(text)
+    }
+    onRunningChanged: {
+      if (collectProc.running) return
+      // Quickshell does not call streamEnded() when a process fails to
+      // spawn, so handleOutput never runs. Clearing here as well is what
+      // keeps `loading` from sticking true forever.
+      root.loading = false
+      if (root.pendingRefresh) Qt.callLater(root.refresh)
     }
   }
 
