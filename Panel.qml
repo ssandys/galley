@@ -68,18 +68,41 @@ Panel {
     root.armedSupplies = next
   }
 
+  property var notifyQueue: []
+
   function dispatchNotifications() {
     var events = Model.diffSnapshots(
       root.previousSnapshot, root.snapshot, notifyOptions())
-    for (var i = 0; i < events.length; i++) {
-      notifyProc.command = ["notify-send", "-a", "Galley",
-        "-u", events[i].urgency, events[i].title, events[i].message]
-      notifyProc.running = true
+    if (events.length > 0) {
+      var queued = root.notifyQueue.slice()
+      for (var i = 0; i < events.length; i++) queued.push(events[i])
+      root.notifyQueue = queued
+      sendNextNotification()
     }
     updateArmedSupplies()
   }
 
-  Process { id: notifyProc }
+  function sendNextNotification() {
+    // One notify-send at a time. Quickshell ignores a command assignment
+    // while a Process is running, so firing these in a loop would silently
+    // drop everything except the first and the last.
+    if (notifyProc.running) return
+    if (root.notifyQueue.length === 0) return
+
+    var next = root.notifyQueue[0]
+    root.notifyQueue = root.notifyQueue.slice(1)
+    notifyProc.command = ["notify-send", "-a", "Galley",
+      "-u", next.urgency, "--", next.title, next.message]
+    notifyProc.running = true
+  }
+
+  Process {
+    id: notifyProc
+    onRunningChanged: {
+      if (notifyProc.running) return
+      Qt.callLater(root.sendNextNotification)
+    }
+  }
 
   Timer {
     id: pollTimer
@@ -91,7 +114,7 @@ Panel {
         ? root.snapshot.summary.activeJobs : 0
       return active > 0 ? root.openInterval * 1000 : root.idleInterval * 1000
     }
-    onTriggered: root.refresh()
+    onTriggered: root.refresh(true)
   }
 
   function pathFromUrl(url) {
@@ -100,11 +123,14 @@ Panel {
     return value
   }
 
-  function refresh() {
-    // A request arriving mid-flight is coalesced rather than dropped; the
-    // in-flight run re-triggers it on completion.
+  function refresh(fromTimer) {
+    // A user-initiated refresh arriving mid-flight is coalesced rather than
+    // dropped; the in-flight run re-triggers it on completion. A timer tick
+    // is not coalesced: re-firing it immediately would decouple the poll
+    // cadence from the configured interval whenever the collector runs
+    // slower than it (degrading to back-to-back polling).
     if (collectProc.running) {
-      pendingRefresh = true
+      if (fromTimer !== true) pendingRefresh = true
       return
     }
     pendingRefresh = false
