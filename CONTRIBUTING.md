@@ -36,22 +36,49 @@ a sign anything is broken.
 ## Running from a source checkout
 
 Don't install the published plugin and edit it in place; work from a clone
-and deploy into the plugin directory:
+and deploy with `bin/install`:
 
 ```bash
 git clone https://github.com/ssandys/galley.git ~/Src/galley
 cd ~/Src/galley
 ./bin/install
-omarchy bar move ssandys.galley --section right
+omarchy bar move ssandys.galley-dev --section right
 ```
 
-`bin/install` rsyncs the working tree into
-`~/.config/omarchy/plugins/ssandys.galley/`, excluding everything that isn't
-needed at runtime (`.git`, `tests/`, `bin/`, `docs/`, and the markdown docs).
+That deploys to `~/.config/omarchy/plugins/ssandys.galley-dev/` under the
+plugin id **`ssandys.galley-dev`**, excluding everything not needed at
+runtime (`.git`, `tests/`, `bin/`, `docs/`, and the markdown docs). You can
+keep the published `ssandys.galley` installed and on the bar at the same
+time; the two are separate plugins as far as the shell is concerned. The dev
+copy announces itself — the bar catalogue lists it as "Galley (dev)", the
+panel header and its desktop notifications say the same.
 
-If you already added Galley with `omarchy plugin add`, remove it first —
-`omarchy plugin remove ssandys.galley` — so the git-managed copy and your
-`bin/install` copy aren't fighting over the same directory.
+**The id, not the directory name, is what keeps them apart.** The registry
+keys `installedPlugins` by `manifest.id` (`PluginRegistry.qml`,
+`parseScanOutput`), and a third-party plugin claiming an id another
+third-party plugin already used silently overwrites it in that map — no
+warning, and which copy survives comes down to glob order. Renaming only the
+directory would give you a dev install that is sometimes the code you're
+editing and sometimes isn't.
+
+So `bin/install` rewrites the identity *in the deployed copy* — the manifest
+id, the display name, and `Panel.qml`'s `moduleName` and `ipcTarget` — and
+then asserts the rewrite landed rather than trusting the `sed`. The source
+tree stays canonical, which is the point: no permanent dirt in `git status`,
+and nothing to remember not to commit. If you ever change the id in
+`manifest.json`, `bin/install` picks it up automatically; it derives the dev
+id from the source manifest instead of hardcoding it.
+
+Because settings in `shell.json` are keyed by plugin id, the dev copy starts
+from the manifest defaults and keeps its own configuration. Tuning a poll
+interval on `ssandys.galley-dev` will not touch your real one.
+
+To summon it, or to remove it when you're done:
+
+```bash
+omarchy-shell shell toggle ssandys.galley-dev
+rm -rf ~/.config/omarchy/plugins/ssandys.galley-dev
+```
 
 ## The edit loop
 
