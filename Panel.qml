@@ -350,7 +350,9 @@ Panel {
         }
 
         Text {
-          visible: root.snapshot.cupsd === "running" && root.visibleJobs().length === 0
+          visible: root.snapshot.cupsd === "running"
+                   && (root.snapshot.printers || []).length > 0
+                   && root.visibleJobs().length === 0
           Layout.fillWidth: true
           text: "No active jobs"
           color: root.dim
