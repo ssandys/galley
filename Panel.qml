@@ -296,15 +296,19 @@ Panel {
     // events, so click-to-open, middle-click-refresh, and the tooltip all
     // keep working straight through the badge.
     BorderSurface {
-      id: badge
       visible: badgeLabel.text !== ""
       width: Math.max(9, button.fontSize * 0.85)
       height: width
       radius: width / 2
       color: Color.accent
-      // The 1px ring in the bar's own background is what separates the badge
-      // from the glyph underneath; without it the two shapes smear together.
-      borderSpec: Border.flat(Color.bar.background, 1)
+      // The 1px ring separates the badge from the glyph underneath; without
+      // it the two shapes smear together. Deliberately Color.background, not
+      // Color.bar.background: the latter resolves through the theme's
+      // bar.background-alpha, so on a translucent bar the ring itself would
+      // go translucent and reintroduce the smear the ring exists to prevent.
+      // Color.background is the foundational, always-opaque token — the same
+      // one badgeLabel below uses for its text.
+      borderSpec: Border.flat(Color.background, 1)
 
       // WidgetButton centers its label, and exposes labelWidth precisely so
       // bar chrome can line up with the painted text instead of the slot.
@@ -325,6 +329,9 @@ Panel {
         // 0.66, not the 0.72 TailscaleIcon.qml uses — that was tuned for a
         // single "!", and "9+" is two characters.
         font.pixelSize: Math.max(6, parent.height * 0.66)
+        // Matches WidgetButton's own label — this is the smallest text the
+        // widget draws, where hinting matters most.
+        renderType: Text.NativeRendering
       }
     }
   }

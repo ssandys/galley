@@ -3,7 +3,7 @@
 **Date:** 2026-08-09
 **Status:** Approved, ready for planning
 **Touches:** `Model.js`, `Panel.qml`, `tests/model.test.js`
-**Precedent:** `~/.local/share/omarchy/shell/plugins/panels/tailscale/TailscaleIcon.qml:46-64`
+**Precedent:** `/usr/share/omarchy/shell/plugins/panels/tailscale/TailscaleIcon.qml:46-64`
 
 ## Purpose
 
@@ -117,7 +117,7 @@ BorderSurface {
   height: width
   radius: width / 2
   color: Color.accent
-  borderSpec: Border.flat(Color.bar.background, 1)
+  borderSpec: Border.flat(Color.background, 1)
 
   Text {
     id: badgeLabel
@@ -141,7 +141,7 @@ No import changes are needed. `Panel.qml` already imports `qs.Ui`
 `BorderSurface` with `Border.flat(...)` is lifted from `TailscaleIcon.qml:46-64`
 — the same 1px ring in a background colour, which is what separates the badge
 from the glyph underneath it instead of letting the two shapes smear together.
-Two differences from that precedent:
+Three differences from that precedent:
 
 - **Top-right, not bottom-right.** Tailscale anchors its `!` bottom-right. The
   newer convention in the reference screenshot is top-right, and it reads better
@@ -149,6 +149,13 @@ Two differences from that precedent:
 - **`pixelSize` at 0.66 of the height, not 0.72.** Tailscale's ratio was tuned
   for a single `!`; `9+` is two characters and needs the smaller ratio to stay
   inside the circle.
+- **Ring colour is `Color.background`, not `Color.bar.background`.** Approved
+  deviation, added after implementation: `bar.background` resolves through the
+  theme's `bar.background-alpha`, so on a theme with a translucent bar the ring
+  itself goes translucent and the badge smears into the glyph — the exact
+  failure the ring exists to prevent. `Color.background` is the foundational,
+  always-opaque token, already used one line below for the badge text, and it
+  stays opaque regardless of bar transparency.
 
 **Vertical bars:** the y-anchor must key off the glyph's height rather than
 `labelWidth`. `Panel.qml` already branches on `root.bar.vertical` for
