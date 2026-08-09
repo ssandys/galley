@@ -28,6 +28,17 @@ def parse_plist(raw):
     return plistlib.loads(raw)
 
 
+def test_succeeded(test_result):
+    """Whether one ipptool test reported an IPP success status.
+
+    ipptool emits a plist even when a STATUS assertion fails, so a parseable
+    response is not the same as a successful one.
+    """
+    if test_result.get("Successful") is False:
+        return False
+    return str(test_result.get("StatusCode", "")).startswith("successful")
+
+
 def response_groups(test_result):
     """Attribute groups of one ipptool test, minus the operation group.
 

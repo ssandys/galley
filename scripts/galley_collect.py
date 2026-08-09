@@ -106,6 +106,14 @@ def collect(threshold=15):
         parsed_printers = gn.parse_plist(printers_raw)
         parsed_jobs = gn.parse_plist(jobs_raw)
 
+        for label, parsed in (("printers", parsed_printers), ("jobs", parsed_jobs)):
+            tests = parsed.get("Tests") or []
+            if not tests:
+                raise RuntimeError("ipptool returned no %s result" % label)
+            if not gn.test_succeeded(tests[0]):
+                raise RuntimeError("ipptool %s request failed: %s"
+                                   % (label, tests[0].get("StatusCode", "unknown")))
+
         if not default:
             default = _default_from_printers(parsed_printers)
 
