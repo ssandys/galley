@@ -97,4 +97,4 @@ This is exactly the live-panel bug the reviewer described (a waste-toner marker 
 
 **Verification:** `python3 -m unittest discover -s tests -p 'test_*.py' -v` → 61 tests, OK (unchanged count: one regex test removed, one behavioral test added). `./bin/test` → exit 0.
 
-**Commit:** `<filled in after commit below>`.
+**Commit:** `3391481` on branch `cross-language-guard` (parent `2895f23`).
