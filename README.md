@@ -70,9 +70,14 @@ from-source setup and the edit/reload loop.
 | Bar shows | Meaning |
 |---|---|
 | Plain glyph | Idle — no active jobs |
-| Glyph + `N` | `N` jobs currently active |
+| Glyph + badge `N` | `N` jobs currently active |
+| Glyph + badge `9+` | Ten or more jobs active — hover for the exact count |
 | Amber glyph | A job is held, or a supply is running low |
 | Red glyph | A printer is stopped, or the collector itself failed |
+
+The badge colour deliberately never changes: severity reaches the bar as the
+glyph's colour, so a red glyph with a badge means "jobs queued, and something is
+wrong".
 
 Hovering the icon shows a tooltip summary, e.g. `2 printers · Canon@OLP
 printing · 3 jobs`.
