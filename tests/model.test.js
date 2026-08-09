@@ -140,3 +140,115 @@ test("tooltipText reports a sleeping daemon plainly", () => {
     summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 } })
   assert.match(text, /idle/i)
 })
+
+const ALL_ON = {
+  threshold: 15, notifyJobFailed: true, notifyPrinterError: true,
+  notifyJobCompleted: true, notifySupplyLow: true,
+  completedIds: [], armedSupplies: {}
+}
+
+function snap(printers, jobs) {
+  return {
+    schema: 1, cupsd: "running", error: null, defaultPrinter: "",
+    printers: printers, jobs: jobs,
+    summary: { printers: printers.length, activeJobs: jobs.length,
+      errorPrinters: 0, lowSupplies: 0 }
+  }
+}
+
+const IDLE_PRINTER = { name: "P", state: "idle", stateReasons: ["none"],
+  accepting: true, queuedJobCount: 0, supplies: [] }
+
+test("no notifications on first load", () => {
+  assert.deepEqual(Model.diffSnapshots(null, snap([IDLE_PRINTER], []), ALL_ON), [])
+})
+
+test("job that vanished and appears completed notifies completion", () => {
+  const before = snap([IDLE_PRINTER], [{ id: 9, name: "a.pdf", printer: "P", state: "processing" }])
+  const after = snap([IDLE_PRINTER], [])
+  const events = Model.diffSnapshots(before, after,
+    Object.assign({}, ALL_ON, { completedIds: [9] }))
+  assert.equal(events.length, 1)
+  assert.equal(events[0].type, "job-completed")
+  assert.match(events[0].message, /a\.pdf/)
+})
+
+test("job that vanished without completing is silent", () => {
+  // A cancelled job also disappears; without confirmation we say nothing.
+  const before = snap([IDLE_PRINTER], [{ id: 9, name: "a.pdf", printer: "P", state: "processing" }])
+  const after = snap([IDLE_PRINTER], [])
+  assert.deepEqual(Model.diffSnapshots(before, after, ALL_ON), [])
+})
+
+test("job entering the stopped state notifies failure", () => {
+  const before = snap([IDLE_PRINTER], [{ id: 9, name: "a.pdf", printer: "P", state: "processing" }])
+  const after = snap([IDLE_PRINTER], [{ id: 9, name: "a.pdf", printer: "P", state: "stopped" }])
+  const events = Model.diffSnapshots(before, after, ALL_ON)
+  assert.equal(events.length, 1)
+  assert.equal(events[0].type, "job-failed")
+  assert.equal(events[0].urgency, "critical")
+})
+
+test("printer entering the stopped state notifies once, not repeatedly", () => {
+  const ok = snap([IDLE_PRINTER], [])
+  const broken = snap([{ ...IDLE_PRINTER, state: "stopped",
+    stateReasons: ["media-jam"], stateMessage: "Paper jam" }], [])
+
+  const first = Model.diffSnapshots(ok, broken, ALL_ON)
+  assert.equal(first.length, 1)
+  assert.equal(first[0].type, "printer-error")
+  assert.match(first[0].message, /Paper jam/)
+
+  assert.deepEqual(Model.diffSnapshots(broken, broken, ALL_ON), [])
+})
+
+test("printer recovering is silent", () => {
+  const broken = snap([{ ...IDLE_PRINTER, state: "stopped", stateReasons: ["media-jam"] }], [])
+  const ok = snap([IDLE_PRINTER], [])
+  assert.deepEqual(Model.diffSnapshots(broken, ok, ALL_ON), [])
+})
+
+test("supply crossing below the threshold notifies once", () => {
+  const high = snap([{ ...IDLE_PRINTER,
+    supplies: [{ name: "Black", type: "toner", level: 40 }] }], [])
+  const low = snap([{ ...IDLE_PRINTER,
+    supplies: [{ name: "Black", type: "toner", level: 9 }] }], [])
+
+  const events = Model.diffSnapshots(high, low, ALL_ON)
+  assert.equal(events.length, 1)
+  assert.equal(events[0].type, "supply-low")
+  assert.equal(events[0].key, "P/Black")
+})
+
+test("supply already armed low does not re-notify", () => {
+  const low = snap([{ ...IDLE_PRINTER,
+    supplies: [{ name: "Black", type: "toner", level: 9 }] }], [])
+  const options = Object.assign({}, ALL_ON, { armedSupplies: { "P/Black": true } })
+  assert.deepEqual(Model.diffSnapshots(low, low, options), [])
+})
+
+test("waste toner never raises a supply alert", () => {
+  const high = snap([{ ...IDLE_PRINTER,
+    supplies: [{ name: "Waste", type: "waste-toner", level: 40 }] }], [])
+  const low = snap([{ ...IDLE_PRINTER,
+    supplies: [{ name: "Waste", type: "waste-toner", level: 2 }] }], [])
+  assert.deepEqual(Model.diffSnapshots(high, low, ALL_ON), [])
+})
+
+test("supplyRearmed requires clearing the threshold by ten points", () => {
+  assert.equal(Model.supplyRearmed(20, 15), false)
+  assert.equal(Model.supplyRearmed(26, 15), true)
+})
+
+test("each notification type respects its toggle", () => {
+  const before = snap([IDLE_PRINTER], [{ id: 9, name: "a.pdf", printer: "P", state: "processing" }])
+  const after = snap([IDLE_PRINTER], [{ id: 9, name: "a.pdf", printer: "P", state: "stopped" }])
+  const off = Object.assign({}, ALL_ON, { notifyJobFailed: false })
+  assert.deepEqual(Model.diffSnapshots(before, after, off), [])
+})
+
+test("a snapshot in the error state produces no notifications", () => {
+  const before = snap([IDLE_PRINTER], [])
+  const after = Model.parseSnapshot("garbage")
+  assert.deepEqual(Model.diffSnapshots(before, after, ALL_ON), [])
+})

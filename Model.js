@@ -189,6 +189,102 @@ function tooltipText(snapshot) {
   return "Galley — " + parts.join(" · ")
 }
 
+var SUPPLY_REARM_MARGIN = 10
+
+function supplyRearmed(level, threshold) {
+  return level > threshold + SUPPLY_REARM_MARGIN
+}
+
+function indexBy(list, key) {
+  var map = {}
+  for (var i = 0; i < (list || []).length; i++) map[list[i][key]] = list[i]
+  return map
+}
+
+function diffSnapshots(prev, next, options) {
+  var events = []
+  // Silent on first load, and never diff against an unusable snapshot.
+  if (!prev || !next) return events
+  if (prev.cupsd !== "running" || next.cupsd !== "running") return events
+
+  var opts = options || {}
+  var threshold = opts.threshold || 15
+  var completed = {}
+  for (var c = 0; c < (opts.completedIds || []).length; c++) {
+    completed[opts.completedIds[c]] = true
+  }
+  var armed = opts.armedSupplies || {}
+
+  var prevJobs = indexBy(prev.jobs, "id")
+  var nextJobs = indexBy(next.jobs, "id")
+
+  for (var id in prevJobs) {
+    var before = prevJobs[id]
+    var after = nextJobs[id]
+
+    if (!after) {
+      // A completed job and a cancelled job both simply vanish. Only the
+      // collector's completed-job confirmation tells them apart.
+      if (opts.notifyJobCompleted && completed[before.id]) {
+        events.push({
+          type: "job-completed", urgency: "low", title: "Print complete",
+          message: before.name + " finished on " + before.printer,
+          key: "job/" + before.id
+        })
+      }
+      continue
+    }
+
+    var failed = after.state === "stopped" || after.state === "aborted"
+    var wasFailed = before.state === "stopped" || before.state === "aborted"
+    if (opts.notifyJobFailed && failed && !wasFailed) {
+      events.push({
+        type: "job-failed", urgency: "critical", title: "Print failed",
+        message: after.name + " stopped on " + after.printer,
+        key: "job/" + after.id
+      })
+    }
+  }
+
+  var prevPrinters = indexBy(prev.printers, "name")
+  for (var p = 0; p < (next.printers || []).length; p++) {
+    var printer = next.printers[p]
+    var previous = prevPrinters[printer.name]
+    if (!previous) continue
+
+    if (opts.notifyPrinterError &&
+        printerHasError(printer) && !printerHasError(previous)) {
+      events.push({
+        type: "printer-error", urgency: "critical", title: "Printer error",
+        message: printer.name + ": " +
+          (printer.stateMessage || (printer.stateReasons || []).join(", ") || "stopped"),
+        key: "printer/" + printer.name
+      })
+    }
+
+    if (!opts.notifySupplyLow) continue
+
+    var supplies = printer.supplies || []
+    for (var s = 0; s < supplies.length; s++) {
+      var supply = supplies[s]
+      if (supply.type === "waste-toner") continue
+      if (typeof supply.level !== "number") continue
+
+      var key = printer.name + "/" + supply.name
+      if (supply.level >= threshold) continue
+      if (armed[key]) continue
+
+      events.push({
+        type: "supply-low", urgency: "normal", title: "Supply low",
+        message: printer.name + ": " + supply.name + " at " + supply.level + "%",
+        key: key
+      })
+    }
+  }
+
+  return events
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     EMPTY_SNAPSHOT: EMPTY_SNAPSHOT,
@@ -203,6 +299,8 @@ if (typeof module !== "undefined") {
     supplyColor: supplyColor,
     filterJobs: filterJobs,
     barSeverity: barSeverity,
-    tooltipText: tooltipText
+    tooltipText: tooltipText,
+    diffSnapshots: diffSnapshots,
+    supplyRearmed: supplyRearmed
   }
 }
