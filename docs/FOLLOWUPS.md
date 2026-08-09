@@ -6,12 +6,33 @@ exists so the reasoning is not lost.
 
 Severity reflects that this is a personal-use widget on a single-user desktop.
 
+## Done
+
+**Cross-language duplication now has a guard** — `tests/test_cross_language.py`,
+merged 2026-08-09. Covers all five crossings: `ERROR_REASONS`, state-name
+strings, the threshold default across seven declarations, the `waste-toner`
+exclusion, and the colour palette.
+
+Worth knowing how it got there, because the lesson generalises. The
+`waste-toner` guard passed against broken code **twice** before it was real:
+its first version matched a comment containing the string, its second matched a
+dead statement that kept the string but had lost its effect. Only executing the
+code caught it — the guard now spawns `node`, calls the real `supplyColor` and
+`diffSnapshots`, and asserts on return values. It also carries **control**
+assertions, because a test that only checks "waste toner returns the fallback"
+is satisfied by an implementation that returns the fallback unconditionally.
+
+A guard that pattern-matches source text is guarding the text, not the
+behaviour. If you add a sixth crossing, execute it.
+
+The original entry follows, for context on what was duplicated and why.
+
 ## Should fix soon
 
-**Cross-language duplication with no guard.** `ERROR_REASONS` is guarded by
-`CrossLanguageErrorReasonsTest`, which parses both source files and diffs the
-sets. Four more things cross the Python/JavaScript boundary with no such guard,
-and all fail *silently*:
+**Cross-language duplication** (now guarded — see above). `ERROR_REASONS` was
+guarded by `CrossLanguageErrorReasonsTest`, which parses both source files and
+diffs the sets. Four more things crossed the Python/JavaScript boundary with no
+such guard, and all failed *silently*:
 
 - **State-name strings.** `galley_normalize.py` maps IPP codes to `"printing"`,
   `"stopped"`, `"held"`, `"processing"`, `"aborted"`. `Model.js` and `Panel.qml`
