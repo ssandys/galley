@@ -269,5 +269,26 @@ class BuildSnapshotTest(unittest.TestCase):
         json.loads(json.dumps(snapshot))
 
 
+class CrossLanguageErrorReasonsTest(unittest.TestCase):
+    """Model.js and galley_normalize.py must classify errors identically.
+
+    The two ERROR_REASONS lists are hand-duplicated across languages: Python
+    drives summary.errorPrinters, JavaScript drives the bar and card colors.
+    A one-sided edit makes a red printer sit next to a "0 errors" summary.
+    """
+
+    def test_javascript_error_reasons_match_python(self):
+        import re
+        model_js = os.path.join(os.path.dirname(__file__), "..", "Model.js")
+        with open(model_js) as handle:
+            source = handle.read()
+
+        match = re.search(r"var ERROR_REASONS = \[(.*?)\]", source, re.S)
+        self.assertIsNotNone(match, "ERROR_REASONS array not found in Model.js")
+
+        js_reasons = set(re.findall(r'"([^"]+)"', match.group(1)))
+        self.assertEqual(js_reasons, set(gn.ERROR_REASONS))
+
+
 if __name__ == "__main__":
     unittest.main()
