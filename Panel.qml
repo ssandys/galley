@@ -109,7 +109,9 @@ Panel {
     onPressed: function (which) {
       if (which === Qt.MiddleButton) { root.refresh(); return }
       if (root.opened) root.close()
-      else { root.open(); root.refresh() }
+      // No explicit refresh here: onOpenedChanged covers it, and also covers
+      // opens triggered via IPC or a keybind, which never reach onPressed.
+      else root.open()
     }
   }
 
