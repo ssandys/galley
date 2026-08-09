@@ -69,11 +69,13 @@ Panel {
 
   property string actionInProgress: ""
   property string actionError: ""
+  property bool actionExited: false
 
   function runAction(verb, target) {
     if (actionInProgress !== "") return
     actionInProgress = verb + ":" + target
     actionError = ""
+    actionExited = false
     actionProc.command = ["bash",
       pathFromUrl(Qt.resolvedUrl("scripts/galley_action.sh")), verb, target]
     actionProc.running = true
@@ -85,17 +87,31 @@ Panel {
       waitForEnd: true
       onStreamFinished: { if (text) root.actionError = text }
     }
-    onExited: function (code) {
-      root.actionInProgress = ""
+    onExited: function (code, status) {
+      root.actionExited = true
       if (code !== 0 && root.actionError === "")
         root.actionError = "Action failed with exit code " + code
+    }
+    onRunningChanged: {
+      if (actionProc.running) return
+      // Quickshell emits neither exited() nor streamEnded() when a process
+      // fails to spawn, so onExited alone would leave actionInProgress set
+      // forever and disable every button in the panel. Same failure mode the
+      // collectProc handler above guards against.
+      if (!root.actionExited && root.actionInProgress !== "")
+        root.actionError = "Could not run the action helper"
+      root.actionInProgress = ""
       Qt.callLater(root.refresh)
     }
   }
 
   onOpenedChanged: {
-    if (opened) refresh()
-    else selectedPrinter = ""
+    if (opened) {
+      actionError = ""
+      refresh()
+    } else {
+      selectedPrinter = ""
+    }
   }
 
   Component.onCompleted: refresh()
@@ -163,7 +179,10 @@ Panel {
         else root.close()
       }
       onTextKey: function (t) {
-        if (t === "r" || t === "R") root.refresh()
+        if (t === "r" || t === "R") {
+          root.actionError = ""
+          root.refresh()
+        }
       }
 
       ColumnLayout {
@@ -338,6 +357,7 @@ Panel {
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
                     enabled: root.actionInProgress === ""
+                    opacity: enabled ? 1.0 : 0.4
                     onClicked: root.runAction(
                       modelData.state === "stopped" ? "resume" : "pause",
                       modelData.name)
@@ -353,6 +373,7 @@ Panel {
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
                     enabled: root.actionInProgress === ""
+                    opacity: enabled ? 1.0 : 0.4
                     onClicked: root.runAction("cancel-all", modelData.name)
                   }
 
@@ -503,6 +524,7 @@ Panel {
                   foreground: modelData.mine ? "#ef4444" : root.dim
                   // _user_cancel_any is 0, so only the owner may cancel.
                   enabled: modelData.mine && root.actionInProgress === ""
+                  opacity: enabled ? 1.0 : 0.4
                   tooltipText: modelData.mine
                     ? "Cancel this job"
                     : "Owned by " + modelData.user + " — you cannot cancel it"
