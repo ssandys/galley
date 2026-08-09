@@ -14,6 +14,20 @@ bash -n bin/install bin/dev-watch bin/test
 [ -f scripts/galley_action.sh ] && bash -n scripts/galley_action.sh
 echo "  ok"
 
+echo "== qml syntax =="
+# qmllint catches parse errors only. It does NOT resolve Quickshell/omarchy
+# imports, so unknown components and bad property references still pass.
+# Treat this as "the file parses", not "the QML is correct".
+if command -v qmllint >/dev/null 2>&1; then
+  for qml in *.qml; do
+    [ -e "$qml" ] || continue
+    qmllint "$qml" || { echo "  qmllint failed on $qml"; exit 1; }
+  done
+  echo "  ok"
+else
+  echo "  qmllint not installed, skipped"
+fi
+
 echo "== python =="
 rc=0
 python3 -m unittest discover -s tests -p 'test_*.py' -v || rc=$?
