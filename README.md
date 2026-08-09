@@ -4,18 +4,14 @@ Galley is an Omarchy shell bar widget that shows the state of every CUPS
 printer and the active print queue, and lets you act on both without leaving
 the bar.
 
-Print failures on Linux are silent: a job vanishes, a printer quietly stops
-because of `ErrorPolicy=stop-printer`, and nothing tells you until you walk
-over and find a blinking light. Galley puts that state in the bar — idle vs.
-printing vs. stopped, supply levels, who owns what's queued — and lets you
-cancel a job or pause/resume a queue on the spot.
+![The Galley panel open below the bar: a header reading "2 printers · 0 jobs",
+printer cards for Brother@Home and Canon@OLP — both idle, each showing supply
+levels, a job count, and a pause button — and an empty QUEUE section reading
+"No active jobs"](docs/panel.png)
 
-> **Screenshot:** not included yet. This needs a human at the keyboard and a
-> queue with a job or two sitting in it — open the panel
-> (`omarchy-shell shell toggle ssandys.galley` or click the bar icon), run
-> `omarchy capture screenshot`, and save the PNG as `docs/panel.png`. Once it
-> exists, reference it here as:
-> `![Galley panel with two printer cards and a filtered queue](docs/panel.png)`
+Above: the calm state — both printers idle, nothing queued. The bar glyph is
+plain (no count badge), and the panel footer spells out the two keys that
+matter, `r` and `Esc`.
 
 ## Prerequisites
 
@@ -34,19 +30,11 @@ Also required: **CUPS ≥ 2.4** (for `ipptool -X`, the XML plist output format �
 JSON output via `-j` didn't land until CUPS 2.5) and a running `cups.service`
 or `cups.socket`. There are no pip or npm dependencies at runtime.
 
-**Development only** (not needed just to run the widget):
-
-| Program | Used for | Arch package |
-|---|---|---|
-| `rsync` | `bin/install` | `rsync` |
-| `inotifywait` | `bin/dev-watch` | `inotify-tools` |
-| `jq` | Manifest validation in `bin/test` | `jq` |
-| `node` | `Model.js` tests | `nodejs` |
-
 Install anything missing with `omarchy pkg add <package>`. On a machine where
-`python3` or `node` are managed by a version manager like mise rather than
-pacman, `pacman -Qo` will report them as unowned — that's expected, not a
-sign anything is broken.
+`python3` is managed by a version manager like mise rather than pacman,
+`pacman -Qo` will report it as unowned — that's expected, not a sign anything
+is broken. (Working on Galley itself needs a few more tools — see
+`CONTRIBUTING.md`.)
 
 Galley does **not** verify any of this at startup. A missing tool surfaces
 as a collector error in the panel (see Troubleshooting below), not as a
@@ -57,19 +45,25 @@ Limitations.
 ## Install
 
 ```bash
-git clone <this-repo> ~/Src/galley
-cd ~/Src/galley
-./bin/install
+omarchy plugin add https://github.com/ssandys/galley.git --enable
 ```
 
-`bin/install` rsyncs the working tree into
-`~/.config/omarchy/plugins/ssandys.galley/` (excluding `.git`, `tests/`,
-`bin/`, and `docs/`). Then add the widget to the bar, either through the
+That clones the plugin into `~/.config/omarchy/plugins/ssandys.galley/` and
+enables it. Then put it where you want it on the bar, either through the
 shell's settings panel or from the command line:
 
 ```bash
 omarchy bar move ssandys.galley --section right
 ```
+
+To pick up later changes:
+
+```bash
+omarchy plugin update ssandys.galley
+```
+
+Working on Galley rather than just running it? See `CONTRIBUTING.md` for the
+from-source setup and the edit/reload loop.
 
 ## Reading the bar
 
@@ -121,14 +115,9 @@ This keeps a printer hovering right at the line from nagging you every poll.
 
 ## Troubleshooting
 
-**The widget looks stale or broken after an edit — try `omarchy restart
-shell` before assuming something is wrong.** Saving a plugin file hot-reloads
-its *code* immediately, but if you changed the widget's *structure* (added a
-new property, a new binding, a new top-level element) the running instance
-is not re-created to match — you'll keep looking at the old shape. This has
-already cost real debugging time on this exact plugin. `bin/dev-watch`
-reinstalls the files on every save but does **not** solve this — it still
-takes a full shell restart to pick up a structural change:
+**The widget looks stale or wrong after an update.** Quickshell doesn't
+re-create an already-running widget when the plugin's *structure* changes, so
+a new property or binding won't show up until the shell restarts:
 
 ```bash
 omarchy restart shell
@@ -171,12 +160,13 @@ reports `failed`, that's a real problem outside Galley's scope.
 collector directly — it's a standalone script, no widget required:
 
 ```bash
-python3 scripts/galley_collect.py | jq .
+python3 ~/.config/omarchy/plugins/ssandys.galley/scripts/galley_collect.py
 ```
 
 This prints the exact JSON snapshot the panel is working from: printer
 states, supplies, the active queue, and (on error) the full error message
-the panel would otherwise truncate.
+the panel would otherwise truncate. Pipe it through `jq .` if you'd rather
+read it formatted.
 
 ## Known limitations
 
@@ -191,6 +181,6 @@ the panel would otherwise truncate.
 ## Uninstall
 
 ```bash
-omarchy plugin disable ssandys.galley   # removes it from the bar
-rm -rf ~/.config/omarchy/plugins/ssandys.galley
+omarchy plugin disable ssandys.galley   # just take it off the bar
+omarchy plugin remove ssandys.galley    # take it off and delete it
 ```

@@ -170,8 +170,18 @@ tested against dicts you can write by hand. See any of the tests in
 
 - `./bin/dev-watch` watches the source tree with `inotifywait` and reruns
   `bin/install` on every save, so the deployed copy under
-  `~/.config/omarchy/plugins/ssandys.galley/` always matches your working
+  `~/.config/omarchy/plugins/ssandys.galley-dev/` always matches your working
   tree.
+
+  **That deployed copy is a different plugin than the published one.**
+  `bin/install` rewrites the manifest id, the display name, and `Panel.qml`'s
+  `moduleName`/`ipcTarget` to `ssandys.galley-dev` on the way out, so a dev
+  install can sit alongside `ssandys.galley` without colliding — the registry
+  keys plugins by manifest id, and duplicate third-party ids overwrite each
+  other silently. The rewrite happens in `$DEST`, never in the source tree:
+  if you find yourself editing `manifest.json`'s id or those two `Panel.qml`
+  properties to make something work, you're solving it in the wrong place.
+  `CONTRIBUTING.md` has the full reasoning.
 
   **This does not solve the restart gotcha.** Quickshell hot-reloads a
   plugin's *code* on file change, but if you changed the widget's
