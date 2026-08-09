@@ -58,8 +58,15 @@ class ErrorEnvelopeTest(unittest.TestCase):
             self.assertIsNotNone(snapshot["error"])
 
     def test_always_emits_valid_json_on_stdout(self):
+        # json.dump() writes incrementally, so an unserializable value would
+        # yield truncated JSON plus a traceback instead of a clean failure.
+        # Building the string with json.dumps() first means stdout is either
+        # a complete document or (on a genuine bug) nothing at all.
         proc, _ = run_cli({"GALLEY_FIXTURE": "/nonexistent/galley"})
-        self.assertEqual(proc.stdout[:1], b"{")
+        self.assertEqual(proc.returncode, 0)
+        parsed = json.loads(proc.stdout.decode())
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(proc.stdout, json.dumps(parsed).encode() + b"\n")
 
 
 class CupsdGateTest(unittest.TestCase):

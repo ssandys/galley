@@ -11,7 +11,11 @@ jq -e . manifest.json >/dev/null && echo "  valid json"
 
 echo "== bash syntax =="
 bash -n bin/install bin/dev-watch bin/test
-[ -f scripts/galley_action.sh ] && bash -n scripts/galley_action.sh
+if [ -f scripts/galley_action.sh ]; then
+  bash -n scripts/galley_action.sh
+else
+  echo "  scripts/galley_action.sh not found, skipping"
+fi
 echo "  ok"
 
 echo "== qml syntax =="

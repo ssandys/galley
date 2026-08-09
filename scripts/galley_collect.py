@@ -164,8 +164,7 @@ def main(argv):
         except (IndexError, ValueError):
             pass
 
-    json.dump(collect(threshold, "--completed" in argv), sys.stdout)
-    sys.stdout.write("\n")
+    sys.stdout.write(json.dumps(collect(threshold, "--completed" in argv)) + "\n")
     return 0
 
 

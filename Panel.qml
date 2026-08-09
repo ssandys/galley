@@ -17,6 +17,16 @@ Panel {
   property bool loading: false
   property string selectedPrinter: ""
 
+  // Status is reported separately from content. `snapshot` above is the
+  // last-known-good content (printer cards, queue rows, counts) and is only
+  // ever replaced by a "running" collector response — see handleOutput().
+  // `cupsdState`/`collectorError` mirror the most recent response verbatim,
+  // good or bad, so status-only surfaces (bar glyph color, tooltip, the
+  // empty states) always reflect what just happened even while the content
+  // underneath is stale.
+  property string cupsdState: "running"
+  property string collectorError: ""
+
   readonly property string barIcon: "\uf02f"
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
@@ -143,14 +153,38 @@ Panel {
     collectProc.running = true
   }
 
+  function statusSnapshot() {
+    // Merge the authoritative status fields onto the retained content, for
+    // the handful of call sites (bar glyph color, tooltip) that must react
+    // to the live cupsd/collector state rather than the last-known-good
+    // snapshot's own (possibly stale) `cupsd`/`error` fields. Content
+    // fields (summary, jobs, printers) still come from root.snapshot, so a
+    // retained error printer or low supply keeps coloring the glyph while
+    // cupsd is merely asleep or the collector is erroring.
+    var merged = {}
+    for (var key in root.snapshot) merged[key] = root.snapshot[key]
+    merged.cupsd = root.cupsdState
+    merged.error = root.collectorError
+    return merged
+  }
+
   function handleOutput(raw) {
     var next = Model.parseSnapshot(raw)
-    root.previousSnapshot = root.dataVersion > 0 ? root.snapshot : null
-    root.snapshot = next
-    root.dataVersion++
+    root.cupsdState = next.cupsd
+    root.collectorError = next.error || ""
     root.loading = false
-    root.jobWasActive = (next.summary ? next.summary.activeJobs : 0) > 0
-    root.dispatchNotifications()
+    // A collector error or an asleep cupsd must not destroy good content:
+    // only a "running" response replaces the retained snapshot. This is
+    // also why dispatchNotifications() lives inside this branch — calling
+    // it against an unchanged (prev, snapshot) pair on every erroring poll
+    // would replay the same diff and re-fire the same notifications.
+    if (next.cupsd === "running") {
+      root.previousSnapshot = root.dataVersion > 0 ? root.snapshot : null
+      root.snapshot = next
+      root.dataVersion++
+      root.jobWasActive = (next.summary ? next.summary.activeJobs : 0) > 0
+      root.dispatchNotifications()
+    }
   }
 
   function selectPrinter(name) {
@@ -238,14 +272,18 @@ Panel {
       return count > 0 ? root.barIcon + " " + count : root.barIcon
     }
     foreground: {
-      var severity = Model.barSeverity(root.snapshot)
+      var severity = Model.barSeverity(root.statusSnapshot())
       if (severity === "error") return "#ef4444"
       if (severity === "warn") return "#eab308"
-      return root.fg
+      // Bar chrome convention (WidgetButton's own default, base Ui/Panel,
+      // tailscale/Panel.qml): barForeground for the glyph, foreground for
+      // panel content. Without this, a transparent bar recolors every
+      // neighbouring widget for legibility except this one.
+      return root.barForeground
     }
     fixedWidth: root.bar && root.bar.vertical ? -1 : Style.space(27)
     fixedHeight: root.bar && root.bar.vertical ? Style.space(26) : -1
-    tooltipText: Model.tooltipText(root.snapshot)
+    tooltipText: Model.tooltipText(root.statusSnapshot())
     onPressed: function (which) {
       if (which === Qt.MiddleButton) { root.refresh(); return }
       if (root.opened) root.close()
@@ -506,9 +544,46 @@ Panel {
           }
         }
 
-        // ── Empty and error states ──
+        // ── Stale indicators ──
+        // Asleep and error both retain content instead of blanking the
+        // panel, but they read differently on purpose: an idle cupsd
+        // (IdleExitTimeout) is ordinary, expected behavior and must stay
+        // calm — dim, no error styling, per the spec's "no error styling"
+        // rule for asleep. A collector error is a real fault and keeps the
+        // same red styling as the no-content error state below. Only ever
+        // shown alongside retained content (printers.length > 0), so
+        // neither competes with the four empty states below: those all
+        // require printers.length === 0 except "No active jobs", which
+        // carries no cupsdState requirement of its own.
         Text {
-          visible: root.snapshot.cupsd === "asleep"
+          visible: root.cupsdState === "asleep" && (root.snapshot.printers || []).length > 0
+          Layout.fillWidth: true
+          text: "CUPS idle — showing last known state"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+          visible: root.cupsdState === "error" && (root.snapshot.printers || []).length > 0
+          Layout.fillWidth: true
+          text: "Showing last known data — " + (root.collectorError || "collector error")
+          color: "#ef4444"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        // ── Empty and error states ──
+        // Mutually exclusive: the first three are keyed on cupsdState, which
+        // is always exactly one of "asleep"/"error"/"running", and all three
+        // require an empty retained printer list; "No active jobs" is the
+        // only one that can be visible when printers are present, so at most
+        // one of the four is ever visible together.
+        Text {
+          visible: root.cupsdState === "asleep" && (root.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "CUPS idle — nothing queued"
           color: root.dim
@@ -518,9 +593,9 @@ Panel {
         }
 
         Text {
-          visible: root.snapshot.cupsd === "error"
+          visible: root.cupsdState === "error" && (root.snapshot.printers || []).length === 0
           Layout.fillWidth: true
-          text: root.snapshot.error || "Collector failed"
+          text: root.collectorError || "Collector failed"
           color: "#ef4444"
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -529,8 +604,7 @@ Panel {
         }
 
         Text {
-          visible: root.snapshot.cupsd === "running"
-                   && (root.snapshot.printers || []).length > 0
+          visible: (root.snapshot.printers || []).length > 0
                    && root.visibleJobs().length === 0
           Layout.fillWidth: true
           text: "No active jobs"
@@ -541,7 +615,7 @@ Panel {
         }
 
         Text {
-          visible: root.snapshot.cupsd === "running" && (root.snapshot.printers || []).length === 0
+          visible: root.cupsdState === "running" && (root.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "No printers configured"
           color: root.dim
