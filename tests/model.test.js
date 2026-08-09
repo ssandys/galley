@@ -50,6 +50,20 @@ test("printerColor leaves an idle printer on the theme foreground", () => {
   assert.equal(Model.printerColor(idle, "#ffffff"), "#ffffff")
 })
 
+test("error reasons match the Python whitelist, across severity suffixes", () => {
+  for (const reason of ["media-jam", "media-empty-warning", "cover-open-report",
+                        "offline", "offline-report", "offline-warning"]) {
+    assert.equal(Model.isErrorReason(reason), true, reason)
+  }
+})
+
+test("benign reasons are not errors", () => {
+  for (const reason of ["none", "", "connecting-to-device", "paused", "other",
+                        "cups-waiting-for-job-completed", "toner-low-warning"]) {
+    assert.equal(Model.isErrorReason(reason), false, reason)
+  }
+})
+
 test("formatSize switches units at a megabyte", () => {
   assert.equal(Model.formatSize(1), "1 KB")
   assert.equal(Model.formatSize(999), "999 KB")

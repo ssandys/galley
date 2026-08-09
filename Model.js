@@ -24,12 +24,18 @@ function parseSnapshot(raw) {
   if (!raw) return emptySnapshot("collector produced no output")
   try {
     var parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== "object") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return emptySnapshot("collector output was not an object")
     }
     if (!parsed.printers) parsed.printers = []
     if (!parsed.jobs) parsed.jobs = []
-    if (!parsed.summary) parsed.summary = EMPTY_SNAPSHOT.summary
+    if (!parsed.summary) {
+      // A fresh object, never the shared EMPTY_SNAPSHOT.summary — aliasing it
+      // lets any later mutation corrupt the exported fallback constant.
+      parsed.summary = {
+        printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0
+      }
+    }
     return parsed
   } catch (err) {
     return emptySnapshot("could not parse collector output: " + err)
@@ -42,6 +48,39 @@ function printerGlyph(state) {
   return "󰐪"
 }
 
+// Mirrors ERROR_REASONS in scripts/galley_normalize.py — the two MUST agree.
+// Python drives summary.errorPrinters; this drives the bar and card colors.
+// A divergence shows up as a red printer next to a "0 errors" summary.
+var ERROR_REASONS = [
+  "media-jam", "media-empty", "media-needed", "toner-empty",
+  "marker-supply-empty", "offline", "offline-report", "door-open", "cover-open",
+  "input-tray-missing", "output-area-full", "shutdown"
+]
+
+var SEVERITY_SUFFIXES = ["-report", "-warning", "-error"]
+
+function baseReason(reason) {
+  var text = String(reason || "")
+  for (var i = 0; i < SEVERITY_SUFFIXES.length; i++) {
+    var suffix = SEVERITY_SUFFIXES[i]
+    if (text.length > suffix.length &&
+        text.lastIndexOf(suffix) === text.length - suffix.length) {
+      return text.slice(0, text.length - suffix.length)
+    }
+  }
+  return text
+}
+
+function isErrorReason(reason) {
+  var text = String(reason || "")
+  if (!text || text === "none") return false
+  var base = baseReason(text)
+  for (var i = 0; i < ERROR_REASONS.length; i++) {
+    if (ERROR_REASONS[i] === base || ERROR_REASONS[i] === text) return true
+  }
+  return false
+}
+
 function printerHasError(printer) {
   if (!printer) return false
   if (printer.state === "stopped") return true
@@ -49,7 +88,7 @@ function printerHasError(printer) {
   // fault. Kept out so this agrees with galley_normalize.has_error.
   var reasons = printer.stateReasons || []
   for (var i = 0; i < reasons.length; i++) {
-    if (reasons[i] && reasons[i] !== "none") return true
+    if (isErrorReason(reasons[i])) return true
   }
   return false
 }
@@ -156,6 +195,7 @@ if (typeof module !== "undefined") {
     parseSnapshot: parseSnapshot,
     printerGlyph: printerGlyph,
     printerHasError: printerHasError,
+    isErrorReason: isErrorReason,
     printerColor: printerColor,
     jobGlyph: jobGlyph,
     formatSize: formatSize,
