@@ -63,6 +63,10 @@ Panel {
     root.selectedPrinter = (root.selectedPrinter === name) ? "" : name
   }
 
+  function visibleJobs() {
+    return Model.filterJobs(root.snapshot.jobs, root.selectedPrinter)
+  }
+
   onOpenedChanged: {
     if (opened) refresh()
     else selectedPrinter = ""
@@ -293,6 +297,152 @@ Panel {
               }
             }
           }
+        }
+
+        PanelSeparator { Layout.fillWidth: true; foreground: root.fg }
+
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(6)
+
+          Text {
+            text: root.selectedPrinter === ""
+              ? "QUEUE" : "QUEUE · " + root.selectedPrinter
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            Layout.fillWidth: true
+          }
+
+          Button {
+            visible: root.selectedPrinter !== ""
+            text: "clear ✕"
+            foreground: root.dim
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            horizontalPadding: Style.space(6)
+            verticalPadding: Style.space(2)
+            onClicked: root.selectedPrinter = ""
+          }
+        }
+
+        // ── Empty and error states ──
+        Text {
+          visible: root.snapshot.cupsd === "asleep"
+          Layout.fillWidth: true
+          text: "CUPS idle — nothing queued"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+          visible: root.snapshot.cupsd === "error"
+          Layout.fillWidth: true
+          text: root.snapshot.error || "Collector failed"
+          color: "#ef4444"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+          visible: root.snapshot.cupsd === "running" && root.visibleJobs().length === 0
+          Layout.fillWidth: true
+          text: "No active jobs"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+          visible: root.snapshot.cupsd === "running" && (root.snapshot.printers || []).length === 0
+          Layout.fillWidth: true
+          text: "No printers configured"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        // ── Queue ──
+        Flickable {
+          id: queueView
+          visible: root.visibleJobs().length > 0
+          Layout.fillWidth: true
+          implicitHeight: Math.min(queueColumn.implicitHeight, Style.space(320))
+          contentHeight: queueColumn.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+
+          ColumnLayout {
+            id: queueColumn
+            width: queueView.width
+            spacing: Style.space(2)
+
+            Repeater {
+              model: root.dataVersion >= 0 ? root.visibleJobs() : []
+
+              delegate: RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                spacing: Style.space(6)
+
+                Text {
+                  text: String(modelData.id)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  Layout.preferredWidth: Style.space(30)
+                }
+
+                Text {
+                  text: Model.jobGlyph(modelData.state)
+                  color: modelData.state === "processing" ? "#3b82f6" : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Text {
+                  text: modelData.name
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideRight
+                  Layout.fillWidth: true
+                }
+
+                Text {
+                  visible: root.selectedPrinter === ""
+                  text: modelData.printer
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Text {
+                  text: modelData.pages
+                    ? modelData.pages + "pg" : Model.formatSize(modelData.sizeKb)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+          }
+        }
+
+        Text {
+          Layout.fillWidth: true
+          text: "r refreshes · esc clears filter, then closes"
+          color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.3)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          horizontalAlignment: Text.AlignHCenter
         }
       }
     }
