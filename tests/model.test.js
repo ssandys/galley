@@ -129,6 +129,34 @@ test("barSeverity is normal while cupsd sleeps", () => {
     summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 } }), "normal")
 })
 
+test("badgeText is empty when nothing is queued", () => {
+  const idle = { ...SNAPSHOT, summary: { ...SNAPSHOT.summary, activeJobs: 0 } }
+  assert.equal(Model.badgeText(idle), "")
+})
+
+test("badgeText shows the exact count up to nine", () => {
+  const one = { ...SNAPSHOT, summary: { ...SNAPSHOT.summary, activeJobs: 1 } }
+  const nine = { ...SNAPSHOT, summary: { ...SNAPSHOT.summary, activeJobs: 9 } }
+  assert.equal(Model.badgeText(one), "1")
+  assert.equal(Model.badgeText(nine), "9")
+})
+
+test("badgeText clamps a queue past nine so the badge stays a circle", () => {
+  const ten = { ...SNAPSHOT, summary: { ...SNAPSHOT.summary, activeJobs: 10 } }
+  const many = { ...SNAPSHOT, summary: { ...SNAPSHOT.summary, activeJobs: 348 } }
+  assert.equal(Model.badgeText(ten), "9+")
+  assert.equal(Model.badgeText(many), "9+")
+})
+
+test("badgeText survives a snapshot with no summary", () => {
+  assert.equal(Model.badgeText({ cupsd: "running", printers: [], jobs: [] }), "")
+})
+
+test("badgeText survives a null snapshot", () => {
+  assert.equal(Model.badgeText(null), "")
+  assert.equal(Model.badgeText(undefined), "")
+})
+
 test("tooltipText summarizes printers and jobs without a name prefix", () => {
   const text = Model.tooltipText(SNAPSHOT)
   assert.match(text, /2 printers/)

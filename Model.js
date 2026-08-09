@@ -6,6 +6,12 @@ var COLOR_WARN = "#eab308"
 var COLOR_ERROR = "#ef4444"
 var COLOR_BUSY = "#3b82f6"
 
+// Past this, the badge shows "9+" rather than the true figure. Keeping the
+// badge a fixed-width circle is the point: a two-digit count would widen it
+// into a pill that overhangs the bar slot and crowds the next widget. The
+// exact figure stays available in the tooltip.
+var BADGE_MAX = 9
+
 var EMPTY_SNAPSHOT = {
   schema: 1, cupsd: "error", error: null, defaultPrinter: "",
   printers: [], jobs: [],
@@ -164,6 +170,15 @@ function barSeverity(snapshot) {
   return "normal"
 }
 
+function badgeText(snapshot) {
+  var summary = (snapshot && snapshot.summary) || {}
+  var count = summary.activeJobs || 0
+  // "" doubles as the visibility flag. An idle queue is the common case, and
+  // this saves Panel.qml a second call to ask whether to draw at all.
+  if (count <= 0) return ""
+  return count > BADGE_MAX ? BADGE_MAX + "+" : String(count)
+}
+
 function plural(count, word) {
   return count + " " + word + (count === 1 ? "" : "s")
 }
@@ -299,6 +314,7 @@ if (typeof module !== "undefined") {
     supplyColor: supplyColor,
     filterJobs: filterJobs,
     barSeverity: barSeverity,
+    badgeText: badgeText,
     tooltipText: tooltipText,
     diffSnapshots: diffSnapshots,
     supplyRearmed: supplyRearmed
