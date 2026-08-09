@@ -291,7 +291,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
-            text: "󰐪  Galley"
+            text: root.barIcon + "  Galley"
             color: root.fg
             font.family: root.fontFamily
             font.pixelSize: Style.font.title
