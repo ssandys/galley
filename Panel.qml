@@ -267,10 +267,8 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: {
-      var count = root.snapshot.summary ? root.snapshot.summary.activeJobs : 0
-      return count > 0 ? root.barIcon + " " + count : root.barIcon
-    }
+    // The count is no longer inline — it renders as the badge child below.
+    text: root.barIcon
     foreground: {
       var severity = Model.barSeverity(root.statusSnapshot())
       if (severity === "error") return "#ef4444"
@@ -290,6 +288,44 @@ Panel {
       // No explicit refresh here: onOpenedChanged covers it, and also covers
       // opens triggered via IPC or a keybind, which never reach onPressed.
       else root.open()
+    }
+
+    // Declared inside the button so it paints above the button's own label,
+    // and so it can anchor to the painted glyph rather than to the slot.
+    // No MouseArea here on purpose: a bare Rectangle/Text consumes no mouse
+    // events, so click-to-open, middle-click-refresh, and the tooltip all
+    // keep working straight through the badge.
+    BorderSurface {
+      id: badge
+      visible: badgeLabel.text !== ""
+      width: Math.max(9, button.fontSize * 0.85)
+      height: width
+      radius: width / 2
+      color: Color.accent
+      // The 1px ring in the bar's own background is what separates the badge
+      // from the glyph underneath; without it the two shapes smear together.
+      borderSpec: Border.flat(Color.bar.background, 1)
+
+      // WidgetButton centers its label, and exposes labelWidth precisely so
+      // bar chrome can line up with the painted text instead of the slot.
+      // Half the label width right of center is the glyph's right edge; half
+      // a font-size above center is its top. The badge straddles that corner.
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.horizontalCenterOffset: button.labelWidth / 2
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.verticalCenterOffset: -button.fontSize * 0.5
+
+      Text {
+        id: badgeLabel
+        anchors.centerIn: parent
+        text: Model.badgeText(root.statusSnapshot())
+        color: Color.background
+        font.family: root.fontFamily
+        font.bold: true
+        // 0.66, not the 0.72 TailscaleIcon.qml uses — that was tuned for a
+        // single "!", and "9+" is two characters.
+        font.pixelSize: Math.max(6, parent.height * 0.66)
+      }
     }
   }
 
