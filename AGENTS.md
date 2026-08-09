@@ -152,9 +152,12 @@ tested against dicts you can write by hand. See any of the tests in
 ## Running things
 
 - `./bin/test` runs everything: `jq` manifest validation, `bash -n` on the
-  shell scripts, `qmllint` on `*.qml`, `python3 -m unittest discover` (56
-  tests as of this writing), and `node --test tests/model.test.js` (32
-  tests).
+  shell scripts, `qmllint` on `*.qml`, `python3 -m unittest discover` (the
+  count grows over time -- read it off the test output rather than trusting
+  a number here), and `node --test tests/model.test.js` (32 tests). As of
+  this writing the Python suite is 61 tests, one of which
+  (`tests/test_cross_language.py`'s waste-toner JS guard) shells out to
+  `node` itself and is skipped, not silently passed, if `node` is missing.
 
   **`qmllint` only catches syntax errors.** It cannot resolve Quickshell or
   Omarchy imports (`qs.Commons`, `qs.Ui`, `Panel`, `WidgetButton`, and so

@@ -17,11 +17,14 @@ import inspect
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import unittest
 
 HERE = os.path.dirname(__file__)
 ROOT = os.path.join(HERE, "..")
+MODEL_JS_PATH = os.path.abspath(os.path.join(ROOT, "Model.js"))
 
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import galley_collect as gc
@@ -176,6 +179,33 @@ class SupplyLowThresholdDefaultTest(unittest.TestCase):
         )
 
 
+NODE_WASTE_TONER_SCRIPT = """
+var Model = require(%s);
+var out = {};
+
+out.wasteColor = Model.supplyColor(
+  {name: "Waste", type: "waste-toner", level: 1}, 15, "FALLBACK");
+out.tonerColor = Model.supplyColor(
+  {name: "Black", type: "toner", level: 1}, 15, "FALLBACK");
+
+var opts = {threshold: 15, notifySupplyLow: true, armedSupplies: {}};
+
+var wastePrev = {cupsd: "running", jobs: [], printers: [
+  {name: "P1", supplies: [{name: "Waste", type: "waste-toner", level: 50}]}]};
+var wasteNext = {cupsd: "running", jobs: [], printers: [
+  {name: "P1", supplies: [{name: "Waste", type: "waste-toner", level: 1}]}]};
+out.wasteEvents = Model.diffSnapshots(wastePrev, wasteNext, opts).length;
+
+var tonerPrev = {cupsd: "running", jobs: [], printers: [
+  {name: "P1", supplies: [{name: "Black", type: "toner", level: 50}]}]};
+var tonerNext = {cupsd: "running", jobs: [], printers: [
+  {name: "P1", supplies: [{name: "Black", type: "toner", level: 1}]}]};
+out.tonerEvents = Model.diffSnapshots(tonerPrev, tonerNext, opts).length;
+
+process.stdout.write(JSON.stringify(out));
+""" % json.dumps(MODEL_JS_PATH)
+
+
 class WasteTonerExclusionTest(unittest.TestCase):
     """waste-toner must be excluded from low-supply logic in both languages.
 
@@ -184,10 +214,21 @@ class WasteTonerExclusionTest(unittest.TestCase):
     alerted on -- in Python's low_supplies and in both Model.js.supplyColor
     and Model.js.diffSnapshots.
 
-    The string-presence half below is a weak guard by nature: a synchronized
-    rename in both languages would still pass it. It is kept deliberately
-    simple. The behavioural half is the real guard -- it calls the actual
-    Python function and checks what it does, not what it says.
+    Both halves are behavioural: the Python half calls the real
+    low_supplies() directly; the JS half shells out to `node` (already a
+    project test dependency -- bin/test runs `node --test`) to call the real
+    supplyColor()/diffSnapshots() and asserts on their actual return values.
+
+    A prior version of the JS half asserted only that the string
+    "waste-toner" appeared inside each function's source text. That passed
+    even when the code's *effect* was neutered by dead code that kept the
+    string (in a comment, then in an unused variable) but dropped its
+    behavior -- a `supplyColor` that colors a waste-toner marker as an error
+    would still have satisfied a string-presence check. Each assertion below
+    is paired with a control using a non-waste supply under the same
+    conditions, so a `supplyColor`/`diffSnapshots` that just always returns
+    the fallback / never fires cannot pass by accident. Do not regress this
+    back to matching text instead of executing code.
     """
 
     def test_python_low_supplies_excludes_waste_toner_behaviourally(self):
@@ -200,23 +241,49 @@ class WasteTonerExclusionTest(unittest.TestCase):
             "with a threshold of 50 was reported as low",
         )
 
-    def test_javascript_skips_waste_toner_in_both_functions(self):
-        source = read("Model.js")
+    @unittest.skipUnless(
+        shutil.which("node"), "node is required to verify Model.js behaviour"
+    )
+    def test_javascript_never_colors_or_alerts_waste_toner(self):
+        result = subprocess.run(
+            ["node", "-e", NODE_WASTE_TONER_SCRIPT],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            "node failed to execute Model.js: %s" % result.stderr,
+        )
+        out = json.loads(result.stdout)
 
-        for name in ("supplyColor", "diffSnapshots"):
-            match = re.search(r"function %s\(" % name, source)
-            self.assertIsNotNone(match, "function %s not found in Model.js" % name)
-            next_fn = re.search(r"\nfunction ", source[match.end():])
-            end = match.end() + next_fn.start() if next_fn else len(source)
-            body = source[match.start():end]
-            # Match the actual comparison, not just the substring anywhere in
-            # the function -- both functions carry a comment mentioning
-            # "waste-toner" that would still be present even if the real
-            # `type === "waste-toner"` check were renamed underneath it.
-            self.assertRegex(
-                body, r'type\s*===\s*"waste-toner"',
-                '%s() in Model.js no longer skips "waste-toner"' % name,
-            )
+        self.assertEqual(
+            out["wasteColor"], "FALLBACK",
+            "supplyColor colored a waste-toner marker at 1%% instead of "
+            "returning the fallback color: got %r" % (out["wasteColor"],),
+        )
+        # Control: without this, a supplyColor that always returns the
+        # fallback regardless of input would pass the assertion above for
+        # the wrong reason.
+        self.assertNotEqual(
+            out["tonerColor"], "FALLBACK",
+            "control failed: a non-waste supply at 1%% also got the "
+            "fallback color, so the assertion above doesn't actually prove "
+            "waste-toner is special-cased",
+        )
+
+        self.assertEqual(
+            out["wasteEvents"], 0,
+            "diffSnapshots emitted a supply-low event for a waste-toner "
+            "marker crossing the threshold",
+        )
+        # Control: without this, a diffSnapshots that never emits supply-low
+        # events at all would pass the assertion above for the wrong reason.
+        self.assertGreaterEqual(
+            out["tonerEvents"], 1,
+            "control failed: diffSnapshots emitted no supply-low event for "
+            "a non-waste marker crossing the threshold under the same "
+            "conditions, so the assertion above doesn't actually prove "
+            "waste-toner is special-cased",
+        )
 
 
 class ColorPaletteTest(unittest.TestCase):
