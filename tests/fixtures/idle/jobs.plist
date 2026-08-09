@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>ipptoolVersion</key>
+<string>CUPS v2.4.19</string>
+<key>Transfer</key>
+<string>auto</string>
+<key>Tests</key>
+<array>
+<dict>
+<key>Name</key>
+<string>Get active jobs</string>
+<key>Version</key>
+<string>1.1</string>
+<key>Operation</key>
+<string>Get-Jobs</string>
+<key>RequestId</key>
+<integer>45895</integer>
+<key>RequestAttributes</key>
+<array>
+<dict>
+<key>attributes-charset</key>
+<string>utf-8</string>
+<key>attributes-natural-language</key>
+<string>en</string>
+<key>printer-uri</key>
+<string>ipp://localhost:631/</string>
+<key>requesting-user-name</key>
+<string>sean</string>
+<key>which-jobs</key>
+<string>not-completed</string>
+<key>my-jobs</key>
+<false />
+<key>requested-attributes</key>
+<array>
+<string>job-id</string>
+<string>job-name</string>
+<string>job-state</string>
+<string>job-state-reasons</string>
+<string>job-originating-user-name</string>
+<string>job-printer-uri</string>
+<string>job-impressions-completed</string>
+<string>job-media-sheets</string>
+<string>job-k-octets</string>
+<string>time-at-creation</string>
+<string>job-priority</string>
+</array>
+</dict>
+</array>
+<key>Successful</key>
+<true />
+<key>StatusCode</key>
+<string>successful-ok</string>
+<key>ResponseAttributes</key>
+<array>
+<dict>
+<key>attributes-charset</key>
+<string>utf-8</string>
+<key>attributes-natural-language</key>
+<string>en</string>
+</dict>
+</array>
+</dict>
+</array>
+<key>Successful</key>
+<true />
+</dict>
+</plist>

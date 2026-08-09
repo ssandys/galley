@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "ssandys.galley",
+  "name": "Galley",
+  "version": "0.1.0",
+  "author": "Sean Sandys",
+  "license": "MIT",
+  "description": "CUPS printers and print queues in the bar: printer state, supply levels, the active queue, and job control. Summon with: omarchy-shell shell toggle ssandys.galley",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "Galley",
+    "description": "CUPS printers, supply levels, and the active print queue",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "pollIntervalOpenSec": 3,
+      "pollIntervalIdleSec": 30,
+      "showSupplies": true,
+      "supplyLowThreshold": 15,
+      "notifyJobFailed": true,
+      "notifyPrinterError": true,
+      "notifyJobCompleted": true,
+      "notifySupplyLow": true
+    },
+    "schema": [
+      { "key": "pollIntervalOpenSec", "type": "integer", "label": "Poll interval while the panel is open (seconds)", "min": 1, "max": 30, "step": 1, "defaultValue": 3 },
+      { "key": "pollIntervalIdleSec", "type": "integer", "label": "Poll interval while idle (seconds)", "min": 5, "max": 300, "step": 5, "defaultValue": 30 },
+      { "key": "showSupplies", "type": "boolean", "label": "Show ink and toner levels", "defaultValue": true },
+      { "key": "supplyLowThreshold", "type": "integer", "label": "Warn when a supply drops below (percent)", "min": 5, "max": 50, "step": 5, "defaultValue": 15 },
+      { "key": "notifyJobFailed", "type": "boolean", "label": "Notify when a print job fails", "defaultValue": true },
+      { "key": "notifyPrinterError", "type": "boolean", "label": "Notify when a printer stops or errors", "defaultValue": true },
+      { "key": "notifyJobCompleted", "type": "boolean", "label": "Notify when a print job completes", "defaultValue": true },
+      { "key": "notifySupplyLow", "type": "boolean", "label": "Notify when a supply runs low", "defaultValue": true }
+    ]
+  }
+}
