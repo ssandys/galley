@@ -67,6 +67,32 @@ Panel {
     return Model.filterJobs(root.snapshot.jobs, root.selectedPrinter)
   }
 
+  property string actionInProgress: ""
+  property string actionError: ""
+
+  function runAction(verb, target) {
+    if (actionInProgress !== "") return
+    actionInProgress = verb + ":" + target
+    actionError = ""
+    actionProc.command = ["bash",
+      pathFromUrl(Qt.resolvedUrl("scripts/galley_action.sh")), verb, target]
+    actionProc.running = true
+  }
+
+  Process {
+    id: actionProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { if (text) root.actionError = text }
+    }
+    onExited: function (code) {
+      root.actionInProgress = ""
+      if (code !== 0 && root.actionError === "")
+        root.actionError = "Action failed with exit code " + code
+      Qt.callLater(root.refresh)
+    }
+  }
+
   onOpenedChanged: {
     if (opened) refresh()
     else selectedPrinter = ""
@@ -294,6 +320,44 @@ Panel {
                     font.pixelSize: Style.font.caption
                   }
                 }
+
+                RowLayout {
+                  Layout.fillWidth: true
+                  Layout.leftMargin: Style.space(14)
+                  Layout.topMargin: Style.space(2)
+                  spacing: Style.space(4)
+
+                  Button {
+                    text: modelData.state === "stopped" ? "resume" : "pause"
+                    foreground: modelData.state === "stopped" ? "#22c55e" : root.fg
+                    tooltipText: modelData.state === "stopped"
+                      ? "Resume printing on this queue"
+                      : "Stop this queue; jobs stay pending"
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(2)
+                    enabled: root.actionInProgress === ""
+                    onClicked: root.runAction(
+                      modelData.state === "stopped" ? "resume" : "pause",
+                      modelData.name)
+                  }
+
+                  Button {
+                    visible: modelData.queuedJobCount > 0
+                    text: "cancel all"
+                    foreground: "#ef4444"
+                    tooltipText: "Cancel every job you own on this queue"
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(2)
+                    enabled: root.actionInProgress === ""
+                    onClicked: root.runAction("cancel-all", modelData.name)
+                  }
+
+                  Item { Layout.fillWidth: true }
+                }
               }
             }
           }
@@ -433,9 +497,35 @@ Panel {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }
+
+                Button {
+                  text: "✕"
+                  foreground: modelData.mine ? "#ef4444" : root.dim
+                  // _user_cancel_any is 0, so only the owner may cancel.
+                  enabled: modelData.mine && root.actionInProgress === ""
+                  tooltipText: modelData.mine
+                    ? "Cancel this job"
+                    : "Owned by " + modelData.user + " — you cannot cancel it"
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.caption
+                  horizontalPadding: Style.space(6)
+                  verticalPadding: Style.space(2)
+                  onClicked: root.runAction("cancel-job", String(modelData.id))
+                }
               }
             }
           }
+        }
+
+        Text {
+          visible: root.actionError !== ""
+          Layout.fillWidth: true
+          text: root.actionError
+          color: "#ef4444"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
         }
 
         Text {
