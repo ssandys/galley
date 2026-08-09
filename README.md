@@ -101,8 +101,8 @@ directly in `shell.json`. Defaults and ranges below come straight from
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `pollIntervalOpenSec` | integer (1–30) | `3` | How often (seconds) the panel polls CUPS while it's open. |
-| `pollIntervalIdleSec` | integer (5–300) | `30` | How often (seconds) it polls while closed and idle. Also used while closed if a job is active, so the badge count stays current. |
+| `pollIntervalOpenSec` | integer (1–30) | `3` | How often (seconds) Galley polls CUPS while the panel is open. Also used while the panel is **closed** if a job is currently active, so the badge count stays current without waiting for the slow interval. |
+| `pollIntervalIdleSec` | integer (5–300) | `30` | How often (seconds) it polls while the panel is closed **and** nothing is active. Has no effect whenever the panel is open or a job is active — see `pollIntervalOpenSec`. |
 | `showSupplies` | boolean | `true` | Show ink/toner/drum levels on each printer card. |
 | `supplyLowThreshold` | integer (5–50) | `15` | Percent level below which a supply counts as low — drives the amber bar color, the card's supply-low count, and the supply-low notification. |
 | `notifyJobFailed` | boolean | `true` | Desktop notification when a job stops or aborts. |
