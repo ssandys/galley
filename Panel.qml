@@ -32,6 +32,68 @@ Panel {
 
   property bool pendingRefresh: false
 
+  property var previousSnapshot: null
+  property var armedSupplies: ({})
+  property bool jobWasActive: false
+
+  readonly property int openInterval: settingValue("pollIntervalOpenSec", 3)
+  readonly property int idleInterval: settingValue("pollIntervalIdleSec", 30)
+
+  function notifyOptions() {
+    return {
+      threshold: root.supplyThreshold,
+      notifyJobFailed: settingValue("notifyJobFailed", true) === true,
+      notifyPrinterError: settingValue("notifyPrinterError", true) === true,
+      notifyJobCompleted: settingValue("notifyJobCompleted", true) === true,
+      notifySupplyLow: settingValue("notifySupplyLow", true) === true,
+      completedIds: root.snapshot.completedIds || [],
+      armedSupplies: root.armedSupplies
+    }
+  }
+
+  function updateArmedSupplies() {
+    var next = {}
+    for (var key in root.armedSupplies) next[key] = root.armedSupplies[key]
+
+    var printers = root.snapshot.printers || []
+    for (var p = 0; p < printers.length; p++) {
+      var supplies = printers[p].supplies || []
+      for (var s = 0; s < supplies.length; s++) {
+        var key2 = printers[p].name + "/" + supplies[s].name
+        if (supplies[s].level < root.supplyThreshold) next[key2] = true
+        else if (Model.supplyRearmed(supplies[s].level, root.supplyThreshold))
+          delete next[key2]
+      }
+    }
+    root.armedSupplies = next
+  }
+
+  function dispatchNotifications() {
+    var events = Model.diffSnapshots(
+      root.previousSnapshot, root.snapshot, notifyOptions())
+    for (var i = 0; i < events.length; i++) {
+      notifyProc.command = ["notify-send", "-a", "Galley",
+        "-u", events[i].urgency, events[i].title, events[i].message]
+      notifyProc.running = true
+    }
+    updateArmedSupplies()
+  }
+
+  Process { id: notifyProc }
+
+  Timer {
+    id: pollTimer
+    running: true
+    repeat: true
+    interval: {
+      if (root.opened) return root.openInterval * 1000
+      var active = root.snapshot.summary
+        ? root.snapshot.summary.activeJobs : 0
+      return active > 0 ? root.openInterval * 1000 : root.idleInterval * 1000
+    }
+    onTriggered: root.refresh()
+  }
+
   function pathFromUrl(url) {
     var value = String(url || "")
     if (value.indexOf("file://") === 0) return decodeURIComponent(value.substring(7))
@@ -47,16 +109,22 @@ Panel {
     }
     pendingRefresh = false
     loading = true
-    collectProc.command = ["python3",
+    var args = ["python3",
       pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py")),
       "--threshold", String(root.supplyThreshold)]
+    if (root.jobWasActive) args.push("--completed")
+    collectProc.command = args
     collectProc.running = true
   }
 
   function handleOutput(raw) {
-    root.snapshot = Model.parseSnapshot(raw)
+    var next = Model.parseSnapshot(raw)
+    root.previousSnapshot = root.dataVersion > 0 ? root.snapshot : null
+    root.snapshot = next
     root.dataVersion++
     root.loading = false
+    root.jobWasActive = (next.summary ? next.summary.activeJobs : 0) > 0
+    root.dispatchNotifications()
   }
 
   function selectPrinter(name) {

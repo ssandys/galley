@@ -17,6 +17,7 @@ import galley_normalize as gn
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PRINTERS_REQUEST = os.path.join(SCRIPT_DIR, "get-printers.test")
 JOBS_REQUEST = os.path.join(SCRIPT_DIR, "get-jobs.test")
+COMPLETED_REQUEST = os.path.join(SCRIPT_DIR, "get-completed-jobs.test")
 IPP_URI = "ipp://localhost/"
 IPPTOOL_TIMEOUT = 10
 
@@ -90,9 +91,26 @@ def _default_from_printers(parsed):
     return groups[0].get("printer-name", "") if groups else ""
 
 
-def collect(threshold=15):
+def completed_job_ids():
+    """IDs of the ten most recently completed jobs.
+
+    Called only when a job has left the active queue, because a completed job
+    and a cancelled job are indistinguishable from the active queue alone.
+    """
+    try:
+        parsed = gn.parse_plist(run_ipptool(COMPLETED_REQUEST))
+        groups = gn.response_groups(parsed["Tests"][0])
+        return [g["job-id"] for g in groups
+                if g.get("job-state") == 9 and "job-id" in g]
+    except Exception:
+        return []
+
+
+def collect(threshold=15, want_completed=False):
     if not cupsd_running() and not fixture_path():
-        return gn.build_snapshot(cupsd="asleep", threshold=threshold)
+        snapshot = gn.build_snapshot(cupsd="asleep", threshold=threshold)
+        snapshot["completedIds"] = []
+        return snapshot
 
     try:
         directory = fixture_path()
@@ -117,7 +135,7 @@ def collect(threshold=15):
         if not default:
             default = _default_from_printers(parsed_printers)
 
-        return gn.build_snapshot(
+        snapshot = gn.build_snapshot(
             printers=gn.response_groups(parsed_printers["Tests"][0]),
             jobs=gn.response_groups(parsed_jobs["Tests"][0]),
             default_printer=default,
@@ -125,11 +143,17 @@ def collect(threshold=15):
             cupsd="running",
             threshold=threshold,
         )
+        snapshot["completedIds"] = (
+            completed_job_ids() if want_completed and not directory else []
+        )
+        return snapshot
     except Exception as exc:
-        return gn.build_snapshot(
+        snapshot = gn.build_snapshot(
             cupsd="error", error="%s: %s" % (type(exc).__name__, exc),
             threshold=threshold,
         )
+        snapshot["completedIds"] = []
+        return snapshot
 
 
 def main(argv):
@@ -140,7 +164,7 @@ def main(argv):
         except (IndexError, ValueError):
             pass
 
-    json.dump(collect(threshold), sys.stdout)
+    json.dump(collect(threshold, "--completed" in argv), sys.stdout)
     sys.stdout.write("\n")
     return 0
 

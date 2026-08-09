@@ -138,5 +138,16 @@ class SubprocessFailureTest(unittest.TestCase):
         self.assertIsNotNone(snapshot["error"])
 
 
+class CompletedIdsTest(unittest.TestCase):
+    def test_snapshot_carries_a_completed_ids_list(self):
+        proc, snapshot = run_cli({"GALLEY_FIXTURE": os.path.join(FIXTURES, "busy")})
+        self.assertIn("completedIds", snapshot)
+        self.assertIsInstance(snapshot["completedIds"], list)
+
+    def test_completed_ids_empty_when_not_requested(self):
+        proc, snapshot = run_cli({"GALLEY_FIXTURE": os.path.join(FIXTURES, "idle")})
+        self.assertEqual(snapshot["completedIds"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
