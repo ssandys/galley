@@ -10,7 +10,7 @@ rsync -a --delete \
   --exclude '.git' --exclude 'tests' --exclude 'bin' --exclude 'docs' \
   --exclude '__pycache__' --exclude '.pytest_cache' --exclude '.github' \
   --exclude '.superpowers' --exclude '.gitignore' \
-  --exclude 'README.md' --exclude 'AGENTS.md' \
+  --exclude 'README.md' --exclude 'AGENTS.md' --exclude 'CONTRIBUTING.md' \
   "$SRC/" "$DEST/"
 
 echo "installed -> $DEST"
