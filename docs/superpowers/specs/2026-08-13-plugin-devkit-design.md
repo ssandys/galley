@@ -347,12 +347,15 @@ notifications read "Colophon (dev)".
 Both are pre-existing bugs in shipped code. Folding them into this spec would
 blur what is a new pattern against what is a repair.
 
-- **galley's `bin/test` early exit** — a Python failure currently skips the JS
-  suite. Fixed incidentally by adopting colophon's structure here, but worth its
-  own issue so the bug is recorded rather than absorbed.
-- **colophon's notification identity** — the dev copy is indistinguishable from
-  the published plugin in `notify-send`. Fixed by porting, but it is colophon's
-  bug and belongs in colophon's tracker.
+- **galley's `bin/test` early exit** —
+  [galley#16](https://github.com/ssandys/galley/issues/16). A Python failure
+  currently skips the JS suite. Fixed incidentally by adopting colophon's
+  structure here; close that issue when this lands, or fix it directly there if
+  this work slips.
+- **colophon's notification identity** —
+  [colophon#5](https://github.com/ssandys/colophon/issues/5). The dev copy is
+  indistinguishable from the published plugin in `notify-send`. Fixed by porting
+  `bin/dev`, but it is colophon's bug and belongs in colophon's tracker.
 
 Also out of scope: generalizing beyond the `ssandys.*` plugins, any shared-repo
 or submodule vending of `bin/`, and galley issue #1's `Controller.qml`
