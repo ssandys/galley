@@ -143,8 +143,8 @@ manifest_field() {
     "$1" "$2"
 }
 
-# --dry-run is accepted in any position and stripped, matching
-# scripts/galley_action.sh.
+# --dry-run is accepted in any position and stripped, matching the plugin's
+# action script under scripts/.
 DRY_RUN=0
 ARGS=()
 for arg in "$@"; do
@@ -155,7 +155,7 @@ VERB="${ARGS[0]:-}"
 # Every side effect routes through here, so a dry run emits the exact command
 # sequence without performing any of it. "$*" flattens arguments, so a dry run
 # renders an argument containing spaces ambiguously while real execution via
-# "$@" stays correct -- the same accepted trade as galley_action.sh's --dry-run,
+# "$@" stays correct -- the same accepted trade as the action script's --dry-run,
 # recorded in docs/FOLLOWUPS.md. Deliberate; do not "fix" it into a divergence.
 run() {
   if (( DRY_RUN )); then printf '%s\n' "$*"; else "$@"; fi
@@ -226,9 +226,12 @@ class DeployTest(unittest.TestCase):
     def test_deploy_never_touches_the_running_shell(self):
         # deploy is what bin/dev-watch calls on every save. If it could restart
         # or enable anything, the edit loop would flicker the whole bar on each
-        # keystroke-to-disk.
+        # keystroke-to-disk. Checked on the LEADING token only: $DEST is
+        # ~/.config/omarchy/plugins/<id>-dev, so the mkdir and rsync lines
+        # legitimately contain "omarchy" inside their path.
         for line in lines(run(["deploy", "--dry-run"])):
-            self.assertNotIn("omarchy", line,
+            first = line.split()[0]
+            self.assertNotIn(first, ("omarchy", "omarchy-shell"),
                              f"deploy emitted a shell command: {line}")
 
     def test_dry_run_deploys_nothing(self):
@@ -281,7 +284,8 @@ deploy() {
   id_re="$(escape_bre "$ID")"
   name_re="$(escape_bre "$NAME")"
   # The name substitution anchors on the CLOSING quote, not the opening one, so
-  # it catches a padded panel title ("  Galley") as well as the bare literals.
+  # it catches a padded panel title -- two leading spaces then the name -- as
+  # well as the bare literals.
   rewrite="s/$id_re\(-dev\)\?/$DEV_ID/g; s/$name_re\( (dev)\)\?\"/$NAME (dev)\"/g"
   # Every top-level QML file, not a named one. A hardcoded list silently
   # narrows every time the code is refactored: colophon's identity rewrite
@@ -836,8 +840,11 @@ git rm bin/install
 
 - [ ] **Step 3: Verify no reference survives**
 
-Run: `grep -rn 'bin/install' --include='*.sh' --include='*.md' bin/ scripts/ tests/ *.md`
-Expected: no hits outside `docs/superpowers/` (historical specs and plans, which stay as written). Task 9 handles the `.md` files.
+Run: `grep -rn 'bin/install' bin/ scripts/ tests/ *.md`
+
+No `--include` filters: nothing in `bin/` has a file extension, so an `--include='*.sh'` filter would exclude `bin/dev`, `bin/dev-watch`, and `bin/test` — the very files being checked — and report a false clean.
+
+Expected: hits only in `*.md` at the repo root, which Task 9 handles. No hits under `bin/`, `scripts/`, or `tests/`.
 
 Run: `bin/test`
 Expected: green. The globbed syntax check now covers `bin/dev` and `bin/dev-watch` and no longer references the deleted file.

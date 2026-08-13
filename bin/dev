@@ -35,8 +35,8 @@ manifest_field() {
     "$1" "$2"
 }
 
-# --dry-run is accepted in any position and stripped, matching
-# scripts/galley_action.sh.
+# --dry-run is accepted in any position and stripped, matching the plugin's
+# action script under scripts/.
 DRY_RUN=0
 ARGS=()
 for arg in "$@"; do
@@ -47,7 +47,7 @@ VERB="${ARGS[0]:-}"
 # Every side effect routes through here, so a dry run emits the exact command
 # sequence without performing any of it. "$*" flattens arguments, so a dry run
 # renders an argument containing spaces ambiguously while real execution via
-# "$@" stays correct -- the same accepted trade as galley_action.sh's --dry-run,
+# "$@" stays correct -- the same accepted trade as the action script's --dry-run,
 # recorded in docs/FOLLOWUPS.md. Deliberate; do not "fix" it into a divergence.
 run() {
   if (( DRY_RUN )); then printf '%s\n' "$*"; else "$@"; fi
@@ -87,7 +87,8 @@ deploy() {
   id_re="$(escape_bre "$ID")"
   name_re="$(escape_bre "$NAME")"
   # The name substitution anchors on the CLOSING quote, not the opening one, so
-  # it catches a padded panel title ("  Galley") as well as the bare literals.
+  # it catches a padded panel title -- two leading spaces then the name -- as
+  # well as the bare literals.
   rewrite="s/$id_re\(-dev\)\?/$DEV_ID/g; s/$name_re\( (dev)\)\?\"/$NAME (dev)\"/g"
   # Every top-level QML file, not a named one. A hardcoded list silently
   # narrows every time the code is refactored: colophon's identity rewrite
