@@ -138,5 +138,55 @@ class StatusTest(unittest.TestCase):
         self.assertIn("enabled", out)
 
 
+class PortabilityTest(unittest.TestCase):
+    """The dev scripts must be byte-identical across plugin repos.
+
+    Everything plugin-specific is derived at runtime from manifest.json, so a
+    port is a copy with no edits. This asserts the invariant that makes that
+    true: no script mentions this plugin's id, display name, or short name.
+
+    The literals are read from manifest.json rather than hardcoded, so this
+    test itself ports unchanged -- which is the whole point.
+
+    Necessarily textual, unlike the behavioural tests above: absence of a
+    literal is a textual property. Scoped to exactly that and nothing else.
+    """
+
+    SCRIPTS = ("bin/dev", "bin/dev-watch", "bin/test")
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "manifest.json")) as handle:
+            manifest = json.load(handle)
+        plugin_id = manifest["id"]
+        self.literals = {
+            "manifest id": plugin_id,
+            "display name": manifest["name"],
+            "short name": plugin_id.split(".")[-1],
+        }
+
+    def test_scripts_carry_no_plugin_specific_literal(self):
+        for relative in self.SCRIPTS:
+            path = os.path.join(ROOT, relative)
+            with open(path) as handle:
+                source = handle.read()
+            for label, literal in self.literals.items():
+                self.assertNotIn(
+                    literal, source,
+                    f"{relative} hardcodes the {label} '{literal}'. Derive it "
+                    f"from manifest.json instead, so this script stays "
+                    f"byte-identical across plugins and ports by copying.")
+
+    def test_every_dev_script_is_covered(self):
+        # A guard listing files by name is only as good as the list. If a new
+        # bin/ script appears, it must be added above or explicitly excused.
+        present = {
+            os.path.join("bin", name)
+            for name in os.listdir(os.path.join(ROOT, "bin"))
+        }
+        self.assertEqual(present, set(self.SCRIPTS),
+                         "bin/ contents changed; update SCRIPTS or excuse the "
+                         "new file explicitly")
+
+
 if __name__ == "__main__":
     unittest.main()
