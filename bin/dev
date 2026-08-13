@@ -91,9 +91,10 @@ deploy() {
   # well as the bare literals.
   rewrite="s/$id_re\(-dev\)\?/$DEV_ID/g; s/$name_re\( (dev)\)\?\"/$NAME (dev)\"/g"
   # Every top-level QML file, not a named one. A hardcoded list silently
-  # narrows every time the code is refactored: colophon's identity rewrite
-  # missed Service.qml for exactly this reason, leaving its dev copy sending
-  # notifications branded identically to the published plugin (colophon#5).
+  # narrows every time the code is refactored: a sibling plugin's identity
+  # rewrite missed a QML file extracted after the list was written, leaving
+  # its dev copy sending notifications branded identically to the published
+  # plugin -- with no test able to see the omission.
   run sed -i "$rewrite" "$DEST/manifest.json" "$DEST"/*.qml
 
   (( DRY_RUN )) && return 0
