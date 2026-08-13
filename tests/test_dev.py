@@ -34,5 +34,29 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("usage", proc.stderr.decode().lower())
 
 
+class DeployTest(unittest.TestCase):
+    def test_dry_run_emits_rsync_and_sed(self):
+        out = "\n".join(lines(run(["deploy", "--dry-run"])))
+        self.assertIn("rsync", out)
+        self.assertIn("sed", out)
+
+    def test_deploy_never_touches_the_running_shell(self):
+        # deploy is what bin/dev-watch calls on every save. If it could restart
+        # or enable anything, the edit loop would flicker the whole bar on each
+        # keystroke-to-disk. Checked on the leading token: $DEST legitimately
+        # contains "omarchy" in its path.
+        for line in lines(run(["deploy", "--dry-run"])):
+            first = line.split()[0]
+            self.assertNotIn(first, ("omarchy", "omarchy-shell"),
+                             f"deploy emitted a shell command: {line}")
+
+    def test_dry_run_deploys_nothing(self):
+        proc = run(["deploy", "--dry-run"])
+        self.assertEqual(proc.returncode, 0)
+        # mkdir routes through run() like everything else, so a dry run cannot
+        # create the destination as a side effect.
+        self.assertTrue(any("mkdir" in line for line in lines(proc)))
+
+
 if __name__ == "__main__":
     unittest.main()

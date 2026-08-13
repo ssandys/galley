@@ -53,13 +53,76 @@ run() {
   if (( DRY_RUN )); then printf '%s\n' "$*"; else "$@"; fi
 }
 
+# Escape BRE metacharacters, including the / used as sed's delimiter. The old
+# bin/install escaped only dots, which was enough for an id and is not enough
+# for an arbitrary display name.
+escape_bre() {
+  printf '%s' "$1" | sed 's/[.[\*^$/]/\\&/g'
+}
+
 [[ -f "$SRC/manifest.json" ]] || fail "no manifest.json in $SRC"
 ID="$(manifest_field "$SRC/manifest.json" id)"
 NAME="$(manifest_field "$SRC/manifest.json" name)"
 DEV_ID="$ID-dev"
 DEST="$HOME/.config/omarchy/plugins/$DEV_ID"
 
+deploy() {
+  run mkdir -p "$DEST"
+  run rsync -a --delete \
+    --exclude '.git' --exclude 'tests' --exclude 'bin' --exclude 'docs' \
+    --exclude '__pycache__' --exclude '.pytest_cache' --exclude '.github' \
+    --exclude '.superpowers' --exclude '.gitignore' \
+    --exclude 'README.md' --exclude 'AGENTS.md' --exclude 'CONTRIBUTING.md' \
+    "$SRC/" "$DEST/"
+
+  # The registry keys plugins by manifest id, not directory name, and one
+  # third-party plugin claiming another's id silently overwrites it in the map
+  # rather than warning (PluginRegistry.qml, parseScanOutput). So the dev copy
+  # needs its own id -- rewritten here, in the deployed copy, to keep the
+  # source tree canonical and `git status` clean.
+  #
+  # Both substitutions tolerate already-rewritten input, so a run that finds
+  # stale output in $DEST cannot compound it into `-dev-dev`.
+  local id_re name_re rewrite
+  id_re="$(escape_bre "$ID")"
+  name_re="$(escape_bre "$NAME")"
+  # The name substitution anchors on the CLOSING quote, not the opening one, so
+  # it catches a padded panel title ("  Galley") as well as the bare literals.
+  rewrite="s/$id_re\(-dev\)\?/$DEV_ID/g; s/$name_re\( (dev)\)\?\"/$NAME (dev)\"/g"
+  # Every top-level QML file, not a named one. A hardcoded list silently
+  # narrows every time the code is refactored: colophon's identity rewrite
+  # missed Service.qml for exactly this reason, leaving its dev copy sending
+  # notifications branded identically to the published plugin (colophon#5).
+  run sed -i "$rewrite" "$DEST/manifest.json" "$DEST"/*.qml
+
+  (( DRY_RUN )) && return 0
+  verify
+}
+
+verify() {
+  # A no-op sed would deploy a second plugin claiming the published id -- the
+  # exact silent collision this is here to avoid -- so prove the rewrite landed
+  # rather than trusting it.
+  local deployed_id stale
+  deployed_id="$(manifest_field "$DEST/manifest.json" id)"
+  [[ "$deployed_id" == "$DEV_ID" ]] ||
+    fail "deployed manifest id is '$deployed_id', expected '$DEV_ID'"
+
+  # These mirror the sed's own quote anchors, so they discriminate rewritten
+  # from unrewritten without any escaping: "$ID" does not match "$DEV_ID", and
+  # $NAME" does not match $NAME (dev)". grep exits 1 on no match, which is the
+  # success case here, hence `|| true` under `set -e`.
+  stale="$(grep -Fl "\"$ID\"" "$DEST"/*.qml || true)"
+  [[ -z "$stale" ]] ||
+    fail "deployed QML still claims the published id: $stale"
+
+  stale="$(grep -Fl "$NAME\"" "$DEST"/*.qml || true)"
+  [[ -z "$stale" ]] ||
+    fail "deployed QML still carries the published name: $stale"
+}
+
 case "$VERB" in
+  deploy) deploy ;;
   "")
     usage >&2
     exit 2
