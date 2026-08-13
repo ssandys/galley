@@ -177,13 +177,13 @@ tested against dicts you can write by hand. See any of the tests in
 
   **That deployed copy is a different plugin than the published one.**
   `bin/dev` rewrites the manifest id, the display name, and the
-  `moduleName`/`ipcTarget` properties in any QML file to `ssandys.galley-dev`
-  on the way out, so a dev install can sit alongside `ssandys.galley` without
-  colliding — the registry keys plugins by manifest id, and duplicate
-  third-party ids overwrite each other silently. The rewrite happens in
-  `$DEST`, never in the source tree: if you find yourself editing
-  `manifest.json`'s id or those QML properties to make something work,
-  you're solving it in the wrong place. The full reasoning is in
+  `moduleName`/`ipcTarget` properties in every top-level QML file to
+  `ssandys.galley-dev` on the way out, so a dev install can sit alongside
+  `ssandys.galley` without colliding — the registry keys plugins by manifest
+  id, and duplicate third-party ids overwrite each other silently. The
+  rewrite happens in `$DEST`, never in the source tree: if you find yourself
+  editing `manifest.json`'s id or those QML properties to make something
+  work, you're solving it in the wrong place. The full reasoning is in
   `CONTRIBUTING.md`; the portable-devkit design is in
   `docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`.
 

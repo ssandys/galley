@@ -84,7 +84,9 @@ To take the dev copy down when you're done:
 ./bin/dev down
 ```
 
-That disables the dev plugin and restarts the shell. It deliberately leaves
+That disables the dev plugin and restarts the shell — unless there was nothing
+to disable, in which case it says so and leaves your shell alone rather than
+flickering the whole bar for a no-op. It deliberately leaves
 `~/.config/omarchy/plugins/ssandys.galley-dev/` in place, so the dev copy's
 settings survive and the next `bin/dev up` is cheap; `rsync --delete` makes
 the redeploy idempotent regardless. `./bin/dev status` reports what is
