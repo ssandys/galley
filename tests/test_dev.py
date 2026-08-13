@@ -58,5 +58,37 @@ class DeployTest(unittest.TestCase):
         self.assertTrue(any("mkdir" in line for line in lines(proc)))
 
 
+class UpTest(unittest.TestCase):
+    def setUp(self):
+        self.out = lines(run(["up", "--dry-run"]))
+
+    def index_of(self, needle):
+        for i, line in enumerate(self.out):
+            if needle in line:
+                return i
+        self.fail(f"`up --dry-run` never emitted {needle!r}; got {self.out}")
+
+    def test_rescans_before_enabling(self):
+        # `omarchy plugin enable` exits 1 on an id the registry has never seen,
+        # which is every first deploy of a fresh clone. The official install
+        # sequence rescans first; bin/install skipped it and only worked on a
+        # machine where the dev id already existed.
+        self.assertLess(self.index_of("rescanPlugins"),
+                        self.index_of("plugin enable"))
+
+    def test_deploys_before_rescanning(self):
+        self.assertLess(self.index_of("rsync"), self.index_of("rescanPlugins"))
+
+    def test_restarts_the_shell_last(self):
+        self.assertEqual(self.index_of("restart shell"), len(self.out) - 1)
+
+    def test_passes_no_placement_to_enable(self):
+        # manifest.json's barWidget.defaultSection already declares placement.
+        # `up` runs repeatedly, so stamping one here would overwrite a position
+        # the user has since moved by hand.
+        enable = self.out[self.index_of("plugin enable")]
+        self.assertRegex(enable, r"^omarchy plugin enable \S+$")
+
+
 if __name__ == "__main__":
     unittest.main()

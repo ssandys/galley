@@ -122,8 +122,28 @@ verify() {
     fail "deployed QML still carries the published name: $stale"
 }
 
+up() {
+  deploy
+  # Registering a NEW id needs an explicit rescan. Code hot-reload under
+  # ~/.config/omarchy/plugins/ is automatic -- that is what bin/dev-watch
+  # relies on -- but `omarchy plugin enable` exits 1 on an id the registry has
+  # never seen, and its own error message names rescanPlugins as the fix. The
+  # documented install sequence is put-files, rescan, enable, in that order.
+  run omarchy-shell shell rescanPlugins
+  # No placement argument: manifest.json's barWidget.defaultSection already
+  # declares it and `enable` honours it, so a down/up cycle restores the widget
+  # unaided. Passing one on every `up` would overwrite a hand-moved position.
+  run omarchy plugin enable "$DEV_ID"
+  run omarchy restart shell
+  (( DRY_RUN )) || {
+    echo "up -> $DEST"
+    echo "  id: $DEV_ID   toggle: omarchy-shell shell toggle $DEV_ID"
+  }
+}
+
 case "$VERB" in
   deploy) deploy ;;
+  up) up ;;
   "")
     usage >&2
     exit 2
