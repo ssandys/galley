@@ -128,5 +128,15 @@ class DownTest(unittest.TestCase):
         self.assertNotIn("rm ", joined)
 
 
+class StatusTest(unittest.TestCase):
+    def test_reports_id_deployment_and_registry_state(self):
+        proc = run(["status"], env={"DEV_STATE_FIXTURE": "enabled"})
+        self.assertEqual(proc.returncode, 0)
+        out = proc.stdout.decode()
+        self.assertIn("-dev", out)
+        self.assertIn("deployed:", out)
+        self.assertIn("enabled", out)
+
+
 if __name__ == "__main__":
     unittest.main()

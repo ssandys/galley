@@ -187,10 +187,19 @@ down() {
   run omarchy restart shell
 }
 
+status() {
+  local deployed="no"
+  [[ -d "$DEST" ]] && deployed="yes ($DEST)"
+  echo "id:        $DEV_ID"
+  echo "deployed:  $deployed"
+  echo "registry:  $(plugin_state)"
+}
+
 case "$VERB" in
   deploy) deploy ;;
   up) up ;;
   down) down ;;
+  status) status ;;
   "")
     usage >&2
     exit 2
