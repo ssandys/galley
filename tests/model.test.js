@@ -168,7 +168,29 @@ test("tooltipText reports a sleeping daemon plainly", () => {
   const text = Model.tooltipText({ cupsd: "asleep", printers: [], jobs: [],
     summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 } })
   assert.match(text, /idle/i)
+  assert.match(text, /nothing queued/i)
   assert.doesNotMatch(text, /Galley/)
+})
+
+test("tooltipText describes retained content while cupsd sleeps", () => {
+  // The tooltip is fed statusSnapshot() (Panel.qml), which merges the live
+  // cupsd state onto retained content -- so an asleep snapshot still carries
+  // the printers and job count that badgeText is drawing and the panel body
+  // is listing under "CUPS idle - showing last known state". Claiming an
+  // empty queue here contradicts both surfaces at once.
+  const retained = { ...SNAPSHOT, cupsd: "asleep" }
+  const text = Model.tooltipText(retained)
+  assert.match(text, /idle/i)
+  assert.doesNotMatch(text, /nothing queued/i)
+  assert.match(text, /2 jobs/)
+})
+
+test("tooltipText surfaces a retained error while cupsd sleeps", () => {
+  // barSeverity keeps the bar glyph red off retained errorPrinters while the
+  // daemon sleeps, so the tooltip has to explain the color it is sitting on.
+  const retained = { ...SNAPSHOT, cupsd: "asleep",
+    summary: { ...SNAPSHOT.summary, errorPrinters: 1 } }
+  assert.match(Model.tooltipText(retained), /1 error/)
 })
 
 const ALL_ON = {
@@ -268,6 +290,68 @@ test("waste toner never raises a supply alert", () => {
 test("supplyRearmed requires clearing the threshold by ten points", () => {
   assert.equal(Model.supplyRearmed(20, 15), false)
   assert.equal(Model.supplyRearmed(26, 15), true)
+})
+
+function suppliedPrinter(level) {
+  return { ...IDLE_PRINTER,
+    supplies: [{ name: "Black", type: "toner", level: level }] }
+}
+
+test("nextArmedSupplies arms a supply below the threshold", () => {
+  assert.deepEqual(
+    Model.nextArmedSupplies({}, snap([suppliedPrinter(9)], []), 15, true),
+    { "P/Black": true })
+})
+
+test("nextArmedSupplies clears a supply that cleared the re-arm margin", () => {
+  assert.deepEqual(
+    Model.nextArmedSupplies({ "P/Black": true },
+      snap([suppliedPrinter(26)], []), 15, true),
+    {})
+})
+
+test("nextArmedSupplies holds a supply inside the hysteresis band", () => {
+  // Between threshold and threshold+10 neither condition applies. The margin
+  // is what stops a supply hovering at the boundary from re-notifying on
+  // every poll, so an armed entry has to survive this band.
+  assert.deepEqual(
+    Model.nextArmedSupplies({ "P/Black": true },
+      snap([suppliedPrinter(20)], []), 15, true),
+    { "P/Black": true })
+})
+
+test("nextArmedSupplies does not arm while supply-low notifications are off", () => {
+  // diffSnapshots skips the whole supply loop under the same condition, so
+  // arming here would swallow the one edge that fires the notification:
+  // turning the toggle back on would stay silent until the supply refilled
+  // past the re-arm margin.
+  const low = snap([suppliedPrinter(9)], [])
+  assert.deepEqual(Model.nextArmedSupplies({}, low, 15, false), {})
+
+  // With the toggle back on, that same unchanged snapshot still notifies.
+  const events = Model.diffSnapshots(low, low, ALL_ON)
+  assert.equal(events.length, 1)
+  assert.equal(events[0].type, "supply-low")
+})
+
+test("nextArmedSupplies returns a fresh map rather than mutating its input", () => {
+  // armedSupplies is a QML `property var`: an in-place mutation would not
+  // change the property's identity, and nothing bound to it would re-evaluate.
+  const before = {}
+  Model.nextArmedSupplies(before, snap([suppliedPrinter(9)], []), 15, true)
+  assert.deepEqual(before, {})
+})
+
+test("a stranded armed entry stays silent until the map is cleared", () => {
+  // This is the behaviour that clearing armedSupplies on a threshold change
+  // buys. Armed under an old threshold of 40, "P/Black" is above the new arm
+  // line and below the new re-arm line (15+10), so it is never cleared by
+  // level alone -- and it suppresses the notification the new threshold of 15
+  // exists to raise.
+  const crossed = snap([suppliedPrinter(12)], [])
+  assert.deepEqual(Model.diffSnapshots(crossed, crossed,
+    Object.assign({}, ALL_ON, { armedSupplies: { "P/Black": true } })), [])
+  assert.equal(Model.diffSnapshots(crossed, crossed, ALL_ON).length, 1)
 })
 
 test("each notification type respects its toggle", () => {

@@ -21,11 +21,32 @@ Severity reflects that this is a personal-use widget on a single-user desktop.
 | [7](https://github.com/ssandys/galley/issues/7) | The threshold default `15` is declared seven times — guarded, but decide whether the guard is the permanent answer |
 | [8](https://github.com/ssandys/galley/issues/8) | `cancel all` is not owner-gated while the per-job cancel is |
 | [9](https://github.com/ssandys/galley/issues/9) | A `Belt Unit` reports `type: "other"`, so a belt at 12% raises a supply-low notification |
-| [10](https://github.com/ssandys/galley/issues/10) | Lowering `supplyLowThreshold` strands armed supplies; arming also happens while notifications are off |
-| [11](https://github.com/ssandys/galley/issues/11) | `tooltipText` says "nothing queued" while the panel body correctly shows retained jobs |
 | [12](https://github.com/ssandys/galley/issues/12) | `loading` has three writes and zero reads |
 
 ## Done
+
+**The two retained-state bugs are fixed** —
+[#11](https://github.com/ssandys/galley/issues/11) and
+[#10](https://github.com/ssandys/galley/issues/10).
+
+`tooltipText` now splits the asleep case on retained content, the same way the
+panel body always has: with printers retained it reports the last-known figures,
+and only a genuinely empty snapshot says "nothing queued". It deliberately drops
+the "<name> printing" clause while asleep — a sleeping daemon prints nothing, so
+a retained printing state must not be reported as current.
+
+Supply arming moved out of `Panel.qml` into `Model.nextArmedSupplies`, which
+skips arming when `notifySupplyLow` is off. It had to move to be tested at all:
+the bug was that arming and notifying disagreed about their conditions, and
+proving they agree means executing both, not reading them side by side. Both now
+read one `notifyOptions()` object per tick. The threshold half is an
+`onSupplyThresholdChanged` handler that drops the whole armed set — redefining
+"low" re-opens the question for every supply.
+
+The QML halves — that `Model.nextArmedSupplies` resolves through the JS import
+at all, and that the change handler fires — are outside what `node --test` and
+`qmllint` can see (see the lint caveat in `bin/test`). They were verified by
+running the same property structure under a standalone `qml` runtime.
 
 **Cross-language duplication now has a guard** — `tests/test_cross_language.py`,
 merged 2026-08-09. Covers all five crossings: `ERROR_REASONS`, state-name
@@ -78,8 +99,9 @@ Not filed as issues — four small edits, one PR's worth of work.
   stateless by design, single caller, edge-triggered by `previousSnapshot`.
 - `visibleJobs()` is called three times per rebind — pure, no binding loop, and
   the data is tens of rows at most.
-- `armedSupplies` keys are never pruned — keyed by (printer, supply), six keys on
-  this machine, and only grows if hardware churns.
+- `armedSupplies` keys are pruned only when a supply clears the re-arm margin or
+  the threshold changes — keyed by (printer, supply), six keys on this machine,
+  and only grows if hardware churns.
 
 ## Not built, deliberately
 

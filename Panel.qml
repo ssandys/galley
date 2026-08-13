@@ -46,6 +46,15 @@ Panel {
   property var armedSupplies: ({})
   property bool jobWasActive: false
 
+  // The armed set records no threshold of its own, and Model.supplyRearmed()
+  // is relative to the current one -- so after a change, an entry armed under
+  // the old threshold can sit above the new arm line and below the new re-arm
+  // line at once. Stranded there it clears on neither condition, and it
+  // suppresses the very notification a lowered threshold was set to raise.
+  // Redefining "low" re-opens the question for every supply, so drop the
+  // whole set and let the next poll arm it afresh.
+  onSupplyThresholdChanged: root.armedSupplies = ({})
+
   readonly property int openInterval: settingValue("pollIntervalOpenSec", 3)
   readonly property int idleInterval: settingValue("pollIntervalIdleSec", 30)
 
@@ -61,35 +70,24 @@ Panel {
     }
   }
 
-  function updateArmedSupplies() {
-    var next = {}
-    for (var key in root.armedSupplies) next[key] = root.armedSupplies[key]
-
-    var printers = root.snapshot.printers || []
-    for (var p = 0; p < printers.length; p++) {
-      var supplies = printers[p].supplies || []
-      for (var s = 0; s < supplies.length; s++) {
-        var key2 = printers[p].name + "/" + supplies[s].name
-        if (supplies[s].level < root.supplyThreshold) next[key2] = true
-        else if (Model.supplyRearmed(supplies[s].level, root.supplyThreshold))
-          delete next[key2]
-      }
-    }
-    root.armedSupplies = next
-  }
-
   property var notifyQueue: []
 
   function dispatchNotifications() {
+    // One options object for both calls below. The arming condition and the
+    // notify condition have to read the same settings within a tick: read
+    // separately, a toggle flipped between them could suppress the event and
+    // arm the supply in the same pass, losing it until a refill.
+    var opts = notifyOptions()
     var events = Model.diffSnapshots(
-      root.previousSnapshot, root.snapshot, notifyOptions())
+      root.previousSnapshot, root.snapshot, opts)
     if (events.length > 0) {
       var queued = root.notifyQueue.slice()
       for (var i = 0; i < events.length; i++) queued.push(events[i])
       root.notifyQueue = queued
       sendNextNotification()
     }
-    updateArmedSupplies()
+    root.armedSupplies = Model.nextArmedSupplies(
+      root.armedSupplies, root.snapshot, opts.threshold, opts.notifySupplyLow)
   }
 
   function sendNextNotification() {

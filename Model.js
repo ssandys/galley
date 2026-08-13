@@ -185,10 +185,25 @@ function plural(count, word) {
 
 function tooltipText(snapshot) {
   if (!snapshot) return "Printers"
-  if (snapshot.cupsd === "asleep") return "CUPS idle, nothing queued"
-  if (snapshot.cupsd === "error") return snapshot.error || "Collector failed"
 
   var summary = snapshot.summary || {}
+
+  // An asleep daemon keeps its content: Panel.qml's handleOutput() replaces
+  // the snapshot only on a "running" response, so summary/printers here are
+  // still exactly what badgeText is drawing in the bar and what the panel
+  // body is listing. Split on retained content the same way the panel body
+  // does, or the tooltip ends up denying the count sitting next to it.
+  if (snapshot.cupsd === "asleep") {
+    if ((snapshot.printers || []).length === 0) return "CUPS idle — nothing queued"
+    // No "<name> printing" clause here: a sleeping daemon is printing
+    // nothing, so a retained printing state must not be reported as current.
+    var idle = [plural(summary.printers || 0, "printer"),
+                plural(summary.activeJobs || 0, "job")]
+    if (summary.errorPrinters > 0) idle.push(plural(summary.errorPrinters, "error"))
+    return "CUPS idle — last known: " + idle.join(" · ")
+  }
+  if (snapshot.cupsd === "error") return snapshot.error || "Collector failed"
+
   var parts = [plural(summary.printers || 0, "printer")]
 
   var printers = snapshot.printers || []
@@ -208,6 +223,36 @@ var SUPPLY_REARM_MARGIN = 10
 
 function supplyRearmed(level, threshold) {
   return level > threshold + SUPPLY_REARM_MARGIN
+}
+
+// Advances the armed set that suppresses repeat supply-low notifications.
+// Lives here rather than in Panel.qml so it can be tested against the same
+// conditions diffSnapshots applies -- the two must agree on which supplies
+// are in play, or one silently disarms what the other would have announced.
+function nextArmedSupplies(armed, snapshot, threshold, notifySupplyLow) {
+  // A fresh map, never the caller's: armedSupplies is a QML `property var`,
+  // and mutating it in place would leave its identity unchanged.
+  var next = {}
+  for (var key in (armed || {})) next[key] = armed[key]
+
+  // diffSnapshots skips its whole supply loop when this toggle is off, so
+  // arming under it would swallow the falling edge that fires the
+  // notification: turning the toggle back on would then stay silent until the
+  // supply refilled past the re-arm margin.
+  if (!notifySupplyLow) return next
+
+  var printers = (snapshot && snapshot.printers) || []
+  for (var p = 0; p < printers.length; p++) {
+    var supplies = printers[p].supplies || []
+    for (var s = 0; s < supplies.length; s++) {
+      var supply = supplies[s]
+      if (typeof supply.level !== "number") continue
+      var supplyKey = printers[p].name + "/" + supply.name
+      if (supply.level < threshold) next[supplyKey] = true
+      else if (supplyRearmed(supply.level, threshold)) delete next[supplyKey]
+    }
+  }
+  return next
 }
 
 function indexBy(list, key) {
@@ -317,6 +362,7 @@ if (typeof module !== "undefined") {
     badgeText: badgeText,
     tooltipText: tooltipText,
     diffSnapshots: diffSnapshots,
-    supplyRearmed: supplyRearmed
+    supplyRearmed: supplyRearmed,
+    nextArmedSupplies: nextArmedSupplies
   }
 }
