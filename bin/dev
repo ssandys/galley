@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Bring the working tree up as a dev plugin, or take it down again.
+#
+#   bin/dev up      [--dry-run]  deploy, register, enable, restart the shell
+#   bin/dev down    [--dry-run]  disable the dev plugin, restart the shell
+#   bin/dev deploy  [--dry-run]  deploy only; never touches the running shell
+#   bin/dev status               report what is deployed, registered, enabled
+#
+# Nothing in this script is plugin-specific. The id and display name come from
+# manifest.json and the files carrying them are globbed, so this file is
+# byte-identical across every plugin and is ported by copying it with no edits.
+# See docs/superpowers/specs/2026-08-13-plugin-devkit-design.md
+set -euo pipefail
+
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+fail() {
+  echo "dev: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+usage: bin/dev <verb> [--dry-run]
+
+  up      deploy, register, enable the dev plugin, restart the shell
+  down    disable the dev plugin, restart the shell
+  deploy  deploy only; never touches the running shell
+  status  report what is deployed, registered, and enabled
+EOF
+}
+
+manifest_field() {
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' \
+    "$1" "$2"
+}
+
+# --dry-run is accepted in any position and stripped, matching
+# scripts/galley_action.sh.
+DRY_RUN=0
+ARGS=()
+for arg in "$@"; do
+  if [[ "$arg" == "--dry-run" ]]; then DRY_RUN=1; else ARGS+=("$arg"); fi
+done
+VERB="${ARGS[0]:-}"
+
+# Every side effect routes through here, so a dry run emits the exact command
+# sequence without performing any of it. "$*" flattens arguments, so a dry run
+# renders an argument containing spaces ambiguously while real execution via
+# "$@" stays correct -- the same accepted trade as galley_action.sh's --dry-run,
+# recorded in docs/FOLLOWUPS.md. Deliberate; do not "fix" it into a divergence.
+run() {
+  if (( DRY_RUN )); then printf '%s\n' "$*"; else "$@"; fi
+}
+
+[[ -f "$SRC/manifest.json" ]] || fail "no manifest.json in $SRC"
+ID="$(manifest_field "$SRC/manifest.json" id)"
+NAME="$(manifest_field "$SRC/manifest.json" name)"
+DEV_ID="$ID-dev"
+DEST="$HOME/.config/omarchy/plugins/$DEV_ID"
+
+case "$VERB" in
+  "")
+    usage >&2
+    exit 2
+    ;;
+  *)
+    echo "dev: unknown verb '$VERB'" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
