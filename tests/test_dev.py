@@ -90,5 +90,43 @@ class UpTest(unittest.TestCase):
         self.assertRegex(enable, r"^omarchy plugin enable \S+$")
 
 
+class DownTest(unittest.TestCase):
+    def out(self, state):
+        return lines(run(["down", "--dry-run"], env={"DEV_STATE_FIXTURE": state}))
+
+    def test_absent_is_a_noop_and_does_not_restart(self):
+        # `omarchy plugin disable` exits 1 on an unregistered id, which under
+        # `set -e` would abort before the restart with an omarchy error rather
+        # than a useful one.
+        proc = run(["down", "--dry-run"], env={"DEV_STATE_FIXTURE": "absent"})
+        self.assertEqual(proc.returncode, 0)
+        joined = "\n".join(lines(proc))
+        self.assertNotIn("restart", joined)
+        self.assertNotIn("plugin disable", joined)
+        self.assertIn("not registered", joined)
+
+    def test_already_disabled_is_a_noop_and_does_not_restart(self):
+        # A shell restart flickers the whole bar and closes open panels, which
+        # is too rude for a no-op.
+        joined = "\n".join(self.out("disabled"))
+        self.assertNotIn("restart", joined)
+        self.assertNotIn("plugin disable", joined)
+        self.assertIn("already disabled", joined)
+
+    def test_enabled_disables_then_restarts(self):
+        out = self.out("enabled")
+        self.assertTrue(any("plugin disable" in line for line in out), out)
+        self.assertTrue(any("restart shell" in line for line in out), out)
+        disable_at = next(i for i, l in enumerate(out) if "plugin disable" in l)
+        restart_at = next(i for i, l in enumerate(out) if "restart shell" in l)
+        self.assertLess(disable_at, restart_at)
+
+    def test_down_does_not_remove_the_deployed_directory(self):
+        # Retaining $DEST preserves the dev copy's shell.json settings, and
+        # rsync --delete already makes `up` idempotent over a stale directory.
+        joined = "\n".join(self.out("enabled"))
+        self.assertNotIn("rm ", joined)
+
+
 if __name__ == "__main__":
     unittest.main()

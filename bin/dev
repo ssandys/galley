@@ -141,9 +141,56 @@ up() {
   }
 }
 
+# Prints exactly one of: enabled, disabled, absent.
+#
+# DEV_STATE_FIXTURE substitutes for the live registry query so tests can drive
+# all three branches deterministically, the same way the collector's fixture
+# environment variable substitutes for ipptool in the collector. Test-only;
+# unset in normal use.
+plugin_state() {
+  if [[ -n "${DEV_STATE_FIXTURE:-}" ]]; then
+    printf '%s\n' "$DEV_STATE_FIXTURE"
+    return 0
+  fi
+  local json
+  json="$(omarchy plugin list --json)"
+  if ! jq -e --arg id "$DEV_ID" 'any(.[]; .id == $id)' >/dev/null <<<"$json"; then
+    printf 'absent\n'
+  elif jq -e --arg id "$DEV_ID" 'any(.[]; .id == $id and .enabled)' \
+       >/dev/null <<<"$json"; then
+    printf 'enabled\n'
+  else
+    printf 'disabled\n'
+  fi
+}
+
+down() {
+  # Guard on registration, not enablement: `omarchy plugin disable` returns ok
+  # for a known-but-disabled plugin and exits 1 only for an id the registry
+  # does not know. Unguarded under `set -e` that aborts before the restart.
+  #
+  # Neither no-op branch restarts the shell. A restart flickers the whole bar
+  # and closes any open panels, which is too rude for "there was nothing to do".
+  case "$(plugin_state)" in
+    absent)
+      echo "dev: $DEV_ID is not registered; nothing to take down"
+      return 0
+      ;;
+    disabled)
+      echo "dev: $DEV_ID is already disabled; nothing to take down"
+      return 0
+      ;;
+  esac
+  # $DEST is deliberately left in place: it preserves the dev copy's settings,
+  # and rsync --delete already makes the next `up` idempotent over it.
+  run omarchy plugin disable "$DEV_ID"
+  run omarchy restart shell
+}
+
 case "$VERB" in
   deploy) deploy ;;
   up) up ;;
+  down) down ;;
   "")
     usage >&2
     exit 2
