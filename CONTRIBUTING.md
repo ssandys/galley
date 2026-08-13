@@ -23,7 +23,7 @@ On top of the runtime requirements in `README.md`:
 
 | Program | Used for | Arch package |
 |---|---|---|
-| `rsync` | `bin/install` | `rsync` |
+| `rsync` | `bin/dev` | `rsync` |
 | `inotifywait` | `bin/dev-watch` | `inotify-tools` |
 | `jq` | Manifest validation in `bin/test` | `jq` |
 | `node` | `Model.js` tests | `nodejs` |
@@ -36,14 +36,18 @@ a sign anything is broken.
 ## Running from a source checkout
 
 Don't install the published plugin and edit it in place; work from a clone
-and deploy with `bin/install`:
+and bring it up with `bin/dev`:
 
 ```bash
 git clone https://github.com/ssandys/galley.git ~/Src/galley
 cd ~/Src/galley
-./bin/install
-omarchy bar move ssandys.galley-dev --section right
+./bin/dev up
 ```
+
+`bin/dev up` deploys the working tree, registers the dev id with the running
+shell, enables the plugin, and restarts the shell. The widget lands in the
+section `manifest.json` declares as `barWidget.defaultSection`, so no
+separate `omarchy bar move` is needed.
 
 That deploys to `~/.config/omarchy/plugins/ssandys.galley-dev/` under the
 plugin id **`ssandys.galley-dev`**, excluding everything not needed at
@@ -61,30 +65,42 @@ warning, and which copy survives comes down to glob order. Renaming only the
 directory would give you a dev install that is sometimes the code you're
 editing and sometimes isn't.
 
-So `bin/install` rewrites the identity *in the deployed copy* — the manifest
-id, the display name, and `Panel.qml`'s `moduleName` and `ipcTarget` — and
-then asserts the rewrite landed rather than trusting the `sed`. The source
-tree stays canonical, which is the point: no permanent dirt in `git status`,
-and nothing to remember not to commit. If you ever change the id in
-`manifest.json`, `bin/install` picks it up automatically; it derives the dev
-id from the source manifest instead of hardcoding it.
+So `bin/dev` rewrites the identity *in the deployed copy* — the manifest id,
+the display name, and the `moduleName`/`ipcTarget` properties in every
+top-level QML file — and then asserts the rewrite landed rather than
+trusting the `sed`. The source tree stays canonical, which is the point: no
+permanent dirt in `git status`, and nothing to remember not to commit. If
+you ever change the id in `manifest.json`, `bin/dev` picks it up
+automatically; it derives the dev id from the source manifest instead of
+hardcoding it.
 
 Because settings in `shell.json` are keyed by plugin id, the dev copy starts
 from the manifest defaults and keeps its own configuration. Tuning a poll
 interval on `ssandys.galley-dev` will not touch your real one.
 
-To summon it, or to remove it when you're done:
+To take the dev copy down when you're done:
 
 ```bash
-omarchy-shell shell toggle ssandys.galley-dev
+./bin/dev down
+```
+
+That disables the dev plugin and restarts the shell. It deliberately leaves
+`~/.config/omarchy/plugins/ssandys.galley-dev/` in place, so the dev copy's
+settings survive and the next `bin/dev up` is cheap; `rsync --delete` makes
+the redeploy idempotent regardless. `./bin/dev status` reports what is
+deployed and whether it is enabled. To reclaim the disk as well:
+
+```bash
 rm -rf ~/.config/omarchy/plugins/ssandys.galley-dev
 ```
 
 ## The edit loop
 
 `./bin/dev-watch` watches the source tree with `inotifywait` and reruns
-`bin/install` on every save, so the deployed copy always matches your working
-tree.
+`bin/dev deploy` on every save, so the deployed copy always matches your
+working tree. It uses `deploy` rather than `up` on purpose: `up` restarts the
+shell, and doing that on every keystroke-to-disk would flicker the whole bar
+continuously.
 
 **It does not solve the restart gotcha.** Quickshell hot-reloads a plugin's
 *code* on file change, but if you changed the widget's *structure* — a new

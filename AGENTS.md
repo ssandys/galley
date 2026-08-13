@@ -171,19 +171,30 @@ tested against dicts you can write by hand. See any of the tests in
   this suite.
 
 - `./bin/dev-watch` watches the source tree with `inotifywait` and reruns
-  `bin/install` on every save, so the deployed copy under
+  `bin/dev deploy` on every save, so the deployed copy under
   `~/.config/omarchy/plugins/ssandys.galley-dev/` always matches your working
   tree.
 
   **That deployed copy is a different plugin than the published one.**
-  `bin/install` rewrites the manifest id, the display name, and `Panel.qml`'s
-  `moduleName`/`ipcTarget` to `ssandys.galley-dev` on the way out, so a dev
-  install can sit alongside `ssandys.galley` without colliding — the registry
-  keys plugins by manifest id, and duplicate third-party ids overwrite each
-  other silently. The rewrite happens in `$DEST`, never in the source tree:
-  if you find yourself editing `manifest.json`'s id or those two `Panel.qml`
-  properties to make something work, you're solving it in the wrong place.
-  `CONTRIBUTING.md` has the full reasoning.
+  `bin/dev` rewrites the manifest id, the display name, and the
+  `moduleName`/`ipcTarget` properties in any QML file to `ssandys.galley-dev`
+  on the way out, so a dev install can sit alongside `ssandys.galley` without
+  colliding — the registry keys plugins by manifest id, and duplicate
+  third-party ids overwrite each other silently. The rewrite happens in
+  `$DEST`, never in the source tree: if you find yourself editing
+  `manifest.json`'s id or those QML properties to make something work,
+  you're solving it in the wrong place. The full reasoning is in
+  `CONTRIBUTING.md`; the portable-devkit design is in
+  `docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`.
+
+  **The portability guard only sees this repo's own literals.**
+  `tests/test_dev.py`'s `PortabilityTest` derives the id, display name, and
+  short name it checks for from this repo's `manifest.json`, so it cannot
+  detect another plugin's name written into `bin/dev`, `bin/dev-watch`, or
+  `bin/test` — a stray `colophon` here would pass galley's `bin/test` clean
+  and only surface as a failure in colophon's own copy of the same test, at
+  the moment of porting. The destination repo's first `bin/test` run after a
+  copy is where a cross-plugin leak like that actually gets caught.
 
   **This does not solve the restart gotcha.** Quickshell hot-reloads a
   plugin's *code* on file change, but if you changed the widget's
