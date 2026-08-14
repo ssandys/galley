@@ -84,9 +84,12 @@ directory would give you a dev install that is sometimes the code you're
 editing and sometimes isn't.
 
 So `bin/dev` rewrites the identity *in the deployed copy* — the manifest id,
-the display name, and the `moduleName`/`ipcTarget` properties in every
-top-level QML file — and then asserts the rewrite landed rather than
-trusting the `sed`. The source tree stays canonical, which is the point: no
+the display name, and every other occurrence of either — across **every
+deployed file that is text**, and then asserts the rewrite landed rather than
+trusting the `sed`. Not a list of filenames and not a list of extensions:
+this started as `Panel.qml` by name, then became a `*.qml` glob when a second
+QML file was missed, and then that glob missed a deployed `Model.js`. Binaries
+are skipped, so `preview.png` never reaches `sed`. The source tree stays canonical, which is the point: no
 permanent dirt in `git status`, and nothing to remember not to commit. If
 you ever change the id in `manifest.json`, `bin/dev` picks it up
 automatically; it derives the dev id from the source manifest instead of

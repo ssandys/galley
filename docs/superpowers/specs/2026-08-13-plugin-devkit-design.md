@@ -97,7 +97,7 @@ authoritative:
 |---|---|
 | Plugin id | `manifest.json` → `.id` |
 | Display name | `manifest.json` → `.name` |
-| Files carrying the identity | `$DEST/*.qml` plus `manifest.json` |
+| Files carrying the identity | every deployed file `grep -I` treats as text |
 | QML to lint | `*.qml` |
 | Shell to syntax-check | `bin/*` and `scripts/*.sh` |
 | Bar placement | `manifest.json` → `.barWidget.defaultSection` |
@@ -242,14 +242,25 @@ substitution keeps anchoring on the **closing** quote, which is what catches the
 padded panel title (`"  Galley"`) as well as the bare literal. Both patterns are
 BRE-escaped rather than relying on the current dot-only expansion.
 
-Targets become the manifest plus every top-level QML file:
+Targets are derived, not listed — every deployed file `grep` treats as text:
 
 ```bash
-sed -i "$REWRITE" "$DEST/manifest.json" "$DEST"/*.qml
+readarray -t targets < <(find "$DEST" -type f -exec grep -Il . {} + || true)
+(( ${#targets[@]} )) || fail "no deployed text files found under $DEST"
+sed -i "$REWRITE" "${targets[@]}"
 ```
 
-Top-level only, matching how `bin/test` already globs `*.qml`. Neither plugin
-nests QML; a plugin that starts to must revisit this and the lint glob together.
+**No name list and no extension list.** This design first replaced a named file
+(`Panel.qml`) with a `*.qml` glob, and that glob then missed a deployed
+`Model.js` in exactly the same way — a file-*type* list narrows on refactor for
+the same reason a file-*name* list does. `grep -I` reports binary as
+non-matching, which is what keeps `preview.png` out of `sed`'s path.
+
+The empty-list guard is load-bearing, not tidiness: `grep -Fl PATTERN` with zero
+file arguments reads stdin and hangs, and `verify()` passes this array straight
+to `grep`. Without the guard, a failed rsync would produce a wedged deploy
+rather than a failed one. `find -exec ... +` runs no `grep` at all when nothing
+matches, so the enumeration itself cannot hang.
 
 ### Verification
 
@@ -362,18 +373,21 @@ The procedure this spec exists to make possible:
 There is no step where you edit a copied script. If a port requires one, the
 derivation is incomplete and this spec is wrong — fix the script, not the copy.
 
-**Prerequisite for colophon specifically:** its identity rewrite currently misses
-`Service.qml`. Porting `bin/dev` fixes that QML-side leak as a side effect,
-because the rewrite target becomes `$DEST/*.qml`. Verify it by checking that a
-deployed dev copy's notifications read "Colophon (dev)".
+**Prerequisite for colophon specifically:** its identity rewrite missed
+`Service.qml`, and after the `*.qml` glob fixed that, it still missed
+`Model.js`. Porting `bin/dev` now fixes both, because the rewrite covers every
+deployed text file.
 
-That check passes without the leak being fully closed. Both the `sed` and
-`verify()` are scoped to `*.qml`, and colophon's `Model.js` — deployed
-unrewritten, since it is neither a rewrite nor a verify target — also carries
-the display name, at the top of a tooltip function. Identity strings in
-deployed non-QML files, `Model.js` in particular, are **not** rewritten by
-this design. Widening the rewrite to `*.js` is deliberately out of scope here;
-it is filed as its own issue rather than folded into this one.
+Verify by deploying into a scratch `HOME` and confirming **no** deployed file
+carries the published id or display name — not by checking that notifications
+read "Colophon (dev)", which was the acceptance criterion originally proposed
+here and which passed while the `Model.js` tooltip leak stood. Confirmed
+against colophon's real tree: `Model.js:263`, `tooltipText`'s early return,
+deploys as `return "Colophon (dev)"`.
+
+The lesson worth keeping: an acceptance check aimed at the surface where a bug
+was *noticed* will pass while the same bug survives on a surface nobody
+thought to look at. Check the property, not the symptom.
 
 ## Out of scope, filed separately
 
@@ -386,11 +400,11 @@ blur what is a new pattern against what is a repair.
   structure here; close that issue when this lands, or fix it directly there if
   this work slips.
 - **colophon's notification identity** —
-  [colophon#5](https://github.com/ssandys/colophon/issues/5). The dev copy is
-  indistinguishable from the published plugin in `notify-send`. Porting
-  `bin/dev` fixes the `Service.qml` half of this (see "Porting to another
-  plugin" above); the `Model.js` half is not fixed by this design and remains
-  colophon's bug, to file separately in colophon's tracker.
+  [colophon#5](https://github.com/ssandys/colophon/issues/5), now closed. The
+  dev copy was indistinguishable from the published plugin in `notify-send`.
+  Porting `bin/dev` fixed the `Service.qml` half; the `Model.js` tooltip half
+  was filed as [galley#17](https://github.com/ssandys/galley/issues/17) and is
+  fixed here by deriving the rewrite target set rather than listing file types.
 
 Also out of scope: generalizing beyond the `ssandys.*` plugins, any shared-repo
 or submodule vending of `bin/`, and galley issue #1's `Controller.qml`

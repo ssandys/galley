@@ -176,14 +176,20 @@ tested against dicts you can write by hand. See any of the tests in
   tree.
 
   **That deployed copy is a different plugin than the published one.**
-  `bin/dev` rewrites the manifest id, the display name, and the
-  `moduleName`/`ipcTarget` properties in every top-level QML file to
-  `ssandys.galley-dev` on the way out, so a dev install can sit alongside
-  `ssandys.galley` without colliding — the registry keys plugins by manifest
-  id, and duplicate third-party ids overwrite each other silently. The
-  rewrite happens in `$DEST`, never in the source tree: if you find yourself
-  editing `manifest.json`'s id or those QML properties to make something
-  work, you're solving it in the wrong place. The full reasoning is in
+  `bin/dev` rewrites the manifest id and the display name — and every other
+  occurrence of either, including `moduleName`/`ipcTarget` — across every
+  deployed file that is text, so a dev install can sit alongside
+  `ssandys.galley` without colliding. The registry keys plugins by manifest
+  id, and duplicate third-party ids overwrite each other silently. Binaries
+  are skipped, so `preview.png` never reaches `sed`. The rewrite happens in
+  `$DEST`, never in the source tree: if you find yourself editing
+  `manifest.json`'s id or those QML properties to make something work, you're
+  solving it in the wrong place.
+
+  The target set is **derived, never listed.** It was a filename, then a
+  `*.qml` glob after a second QML file was missed, and that glob then missed a
+  sibling plugin's `Model.js` — a file-type list narrows on refactor for the
+  same reason a filename does. The full reasoning is in
   `CONTRIBUTING.md`; the portable-devkit design is in
   `docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`.
 
