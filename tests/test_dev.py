@@ -65,9 +65,17 @@ class RealDeployTest(unittest.TestCase):
 
     Every other test here inspects --dry-run's printed strings, which means
     deploy() and verify() are never actually run. That left the rewrite itself
-    untested: narrowing the sed target back to a named file, or gutting
-    verify(), kept the suite green. $DEST derives from $HOME alone, so an
-    overridden HOME makes a real deploy fully hermetic.
+    untested: narrowing the sed target back to a named file, or dropping
+    --delete from the rsync, both kept the suite green. $DEST derives from
+    $HOME alone, so an overridden HOME makes a real deploy fully hermetic.
+
+    verify() is NOT covered here, and cannot be by any assertion on deployed
+    output: its grep uses the same quote anchors as the sed it is checking,
+    so there is no input on which the sed misses and verify catches it.
+    Replacing verify()'s body with `return 0` still leaves correctly-rewritten
+    output behind whenever the sed itself is correct, so no assertion on that
+    output can tell verify() is gone. It is a redundant belt-and-braces check,
+    not a tested one.
 
     The literals are read from this repo's own manifest.json, the same way
     PortabilityTest does, so this test ports unchanged.
@@ -138,6 +146,14 @@ class RealDeployTest(unittest.TestCase):
         os.makedirs(os.path.join(mirror, "bin"))
         shutil.copy(DEV, os.path.join(mirror, "bin", "dev"))
         shutil.copy(os.path.join(ROOT, "manifest.json"), mirror)
+        # The real Panel.qml, copied verbatim, alongside a synthetic second
+        # QML file below: a mutation that hardcodes the sed target back to
+        # "$DEST/Panel.qml" then succeeds on Panel.qml and silently skips the
+        # second file, instead of crashing on a missing named file -- which is
+        # what a mirror carrying only the synthetic file would produce, for
+        # the wrong reason (sed: can't read .../Panel.qml: No such file or
+        # directory), never exercising the actual defect this test exists for.
+        shutil.copy(os.path.join(ROOT, "Panel.qml"), mirror)
         with open(os.path.join(mirror, "Extra.qml"), "w") as handle:
             handle.write(
                 'Item {\n'
@@ -180,6 +196,26 @@ class RealDeployTest(unittest.TestCase):
                 text = handle.read()
             self.assertNotIn("-dev-dev", text)
             self.assertNotIn("(dev) (dev)", text)
+
+    def test_second_deploy_removes_a_stray_file_left_in_dest(self):
+        # `up` relies on rsync --delete to stay idempotent over a stale
+        # $DEST (see bin/dev's own comment in down()), but nothing above
+        # actually deploys twice with $DEST perturbed in between, so dropping
+        # --delete from the rsync leaves this whole suite green. Plant a
+        # stray file inside the deployed directory after the first deploy and
+        # confirm the second one removes it.
+        self.deploy_into(self.home)
+        stray = os.path.join(self.dest, "stray-leftover.txt")
+        with open(stray, "w") as handle:
+            handle.write("leftover\n")
+
+        proc = self.deploy_into(self.home)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertFalse(
+            os.path.exists(stray),
+            "a stray file in $DEST survived a second deploy -- rsync "
+            "--delete is missing or not being applied, so `up` is not "
+            "idempotent over a stale $DEST")
 
 
 class UpTest(unittest.TestCase):
