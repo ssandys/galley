@@ -311,8 +311,13 @@ save.
 **The portability guard.** One test asserting the three scripts contain no
 plugin-specific literal — not the plugin id, not the display name, not the repo
 name — read from `manifest.json` rather than hardcoded, so the test itself ports
-unchanged. This is what makes "byte-identical" an enforced invariant instead of
-an aspiration, and `bin/test`'s own history is the argument for having it.
+unchanged. This makes "byte-identical" an enforced invariant for this repo's
+own literals, and `bin/test`'s own history is the argument for having it. Its
+limit: the guard derives those literals from this repo's own `manifest.json`,
+so it structurally cannot see *another* plugin's name written into these
+scripts — a stray `colophon` literal here passes galley's `bin/test` clean and
+only surfaces as a failure in colophon's own copy of the same test, at the
+moment of porting.
 
 Per the lesson recorded in `docs/FOLLOWUPS.md` and enforced throughout
 `tests/test_cross_language.py`: a guard that pattern-matches source text is
@@ -338,9 +343,17 @@ There is no step where you edit a copied script. If a port requires one, the
 derivation is incomplete and this spec is wrong — fix the script, not the copy.
 
 **Prerequisite for colophon specifically:** its identity rewrite currently misses
-`Service.qml`. Porting `bin/dev` fixes that as a side effect, because the rewrite
-target becomes `$DEST/*.qml`. Verify it by checking that a deployed dev copy's
-notifications read "Colophon (dev)".
+`Service.qml`. Porting `bin/dev` fixes that QML-side leak as a side effect,
+because the rewrite target becomes `$DEST/*.qml`. Verify it by checking that a
+deployed dev copy's notifications read "Colophon (dev)".
+
+That check passes without the leak being fully closed. Both the `sed` and
+`verify()` are scoped to `*.qml`, and colophon's `Model.js` — deployed
+unrewritten, since it is neither a rewrite nor a verify target — also carries
+the display name, at the top of a tooltip function. Identity strings in
+deployed non-QML files, `Model.js` in particular, are **not** rewritten by
+this design. Widening the rewrite to `*.js` is deliberately out of scope here;
+it is filed as its own issue rather than folded into this one.
 
 ## Out of scope, filed separately
 
@@ -354,8 +367,10 @@ blur what is a new pattern against what is a repair.
   this work slips.
 - **colophon's notification identity** —
   [colophon#5](https://github.com/ssandys/colophon/issues/5). The dev copy is
-  indistinguishable from the published plugin in `notify-send`. Fixed by porting
-  `bin/dev`, but it is colophon's bug and belongs in colophon's tracker.
+  indistinguishable from the published plugin in `notify-send`. Porting
+  `bin/dev` fixes the `Service.qml` half of this (see "Porting to another
+  plugin" above); the `Model.js` half is not fixed by this design and remains
+  colophon's bug, to file separately in colophon's tracker.
 
 Also out of scope: generalizing beyond the `ssandys.*` plugins, any shared-repo
 or submodule vending of `bin/`, and galley issue #1's `Controller.qml`

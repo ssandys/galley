@@ -156,10 +156,10 @@ tested against dicts you can write by hand. See any of the tests in
   count grows over time -- read it off the test output rather than trusting
   a number here), and `node --test tests/model.test.js` (same caveat -- read
   the count off the test output rather than trusting a number here). As of
-  this writing the Python suite is 61 tests, one of which
+  this writing the Python suite is 85 tests, one of which
   (`tests/test_cross_language.py`'s waste-toner JS guard) shells out to
   `node` itself and is skipped, not silently passed, if `node` is missing,
-  and the JS suite is 37 tests.
+  and the JS suite is 45 tests.
 
   **`qmllint` only catches syntax errors.** It cannot resolve Quickshell or
   Omarchy imports (`qs.Commons`, `qs.Ui`, `Panel`, `WidgetButton`, and so
