@@ -1,7 +1,9 @@
 # tests/test_dev.py
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,6 +58,128 @@ class DeployTest(unittest.TestCase):
         # mkdir routes through run() like everything else, so a dry run cannot
         # create the destination as a side effect.
         self.assertTrue(any("mkdir" in line for line in lines(proc)))
+
+
+class RealDeployTest(unittest.TestCase):
+    """Executes deploy() for real into a scratch HOME.
+
+    Every other test here inspects --dry-run's printed strings, which means
+    deploy() and verify() are never actually run. That left the rewrite itself
+    untested: narrowing the sed target back to a named file, or gutting
+    verify(), kept the suite green. $DEST derives from $HOME alone, so an
+    overridden HOME makes a real deploy fully hermetic.
+
+    The literals are read from this repo's own manifest.json, the same way
+    PortabilityTest does, so this test ports unchanged.
+    """
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "manifest.json")) as handle:
+            manifest = json.load(handle)
+        self.published_id = manifest["id"]
+        self.published_name = manifest["name"]
+        self.dev_id = f"{self.published_id}-dev"
+        self.home = tempfile.mkdtemp(prefix="dev-test-home-")
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.dest = os.path.join(
+            self.home, ".config", "omarchy", "plugins", self.dev_id)
+
+    def deploy_into(self, home):
+        return subprocess.run(["bash", DEV, "deploy"], capture_output=True,
+                              timeout=60, cwd=ROOT, env={**os.environ, "HOME": home})
+
+    def deployed_manifest(self):
+        with open(os.path.join(self.dest, "manifest.json")) as handle:
+            return json.load(handle)
+
+    def deployed_qml_files(self):
+        return [name for name in os.listdir(self.dest) if name.endswith(".qml")]
+
+    def test_deploy_exits_zero(self):
+        proc = self.deploy_into(self.home)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+
+    def test_deployed_manifest_carries_the_dev_identity(self):
+        self.deploy_into(self.home)
+        manifest = self.deployed_manifest()
+        self.assertEqual(manifest["id"], self.dev_id)
+        self.assertTrue(manifest["name"].endswith("(dev)"), manifest["name"])
+
+    def test_every_deployed_qml_file_is_rewritten(self):
+        self.deploy_into(self.home)
+        qml_files = self.deployed_qml_files()
+        self.assertTrue(qml_files, "deploy produced no *.qml files to check")
+        published_id_quoted = f'"{self.published_id}"'
+        published_name_quoted = f'{self.published_name}"'
+        for name in qml_files:
+            with open(os.path.join(self.dest, name)) as handle:
+                text = handle.read()
+            self.assertNotIn(
+                published_id_quoted, text,
+                f"{name} still claims the published id {published_id_quoted!r}")
+            self.assertNotIn(
+                published_name_quoted, text,
+                f"{name} still carries the published name "
+                f"{published_name_quoted!r}")
+
+    def test_rewrite_reaches_every_top_level_qml_file_not_just_one(self):
+        # Regression guard for the exact defect the old bin/install had and
+        # this branch replaces: a rewrite scoped to a named file (there,
+        # Panel.qml) silently misses a second top-level QML file introduced
+        # later -- colophon's real Service.qml bug, described in the design
+        # spec. Galley itself currently has only one top-level *.qml file, so
+        # this can't be exercised against this repo's own tree: a mutation
+        # that hardcodes the sed target back to "$DEST/Panel.qml" produces
+        # byte-identical output to the glob today, and would slip past a test
+        # that only looks at this repo's actual files. Reproduced instead in
+        # a scratch mirror of the source tree carrying a second *.qml file.
+        mirror = tempfile.mkdtemp(prefix="dev-test-mirror-")
+        self.addCleanup(shutil.rmtree, mirror, ignore_errors=True)
+        os.makedirs(os.path.join(mirror, "bin"))
+        shutil.copy(DEV, os.path.join(mirror, "bin", "dev"))
+        shutil.copy(os.path.join(ROOT, "manifest.json"), mirror)
+        with open(os.path.join(mirror, "Extra.qml"), "w") as handle:
+            handle.write(
+                'Item {\n'
+                f'  property string moduleName: "{self.published_id}"\n'
+                f'  property string label: "  {self.published_name}"\n'
+                '}\n')
+
+        proc = subprocess.run(
+            ["bash", os.path.join(mirror, "bin", "dev"), "deploy"],
+            capture_output=True, timeout=60, cwd=mirror,
+            env={**os.environ, "HOME": self.home})
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+
+        with open(os.path.join(self.dest, "Extra.qml")) as handle:
+            text = handle.read()
+        self.assertNotIn(f'"{self.published_id}"', text,
+                         "a second top-level *.qml file still carries the "
+                         "published id -- the rewrite is not reaching every "
+                         "*.qml file")
+        self.assertNotIn(f'{self.published_name}"', text,
+                         "a second top-level *.qml file still carries the "
+                         "published name -- the rewrite is not reaching "
+                         "every *.qml file")
+
+    def test_second_deploy_into_the_same_home_stays_idempotent(self):
+        # `up` runs deploy repeatedly (rescan and enable are themselves
+        # idempotent), so a second deploy over the first's output must not
+        # compound the rewrite into -dev-dev or "(dev) (dev)".
+        self.deploy_into(self.home)
+        proc = self.deploy_into(self.home)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+
+        manifest = self.deployed_manifest()
+        self.assertEqual(manifest["id"], self.dev_id)
+        self.assertNotIn("-dev-dev", manifest["id"])
+        self.assertNotIn("(dev) (dev)", manifest["name"])
+
+        for name in self.deployed_qml_files():
+            with open(os.path.join(self.dest, name)) as handle:
+                text = handle.read()
+            self.assertNotIn("-dev-dev", text)
+            self.assertNotIn("(dev) (dev)", text)
 
 
 class UpTest(unittest.TestCase):
