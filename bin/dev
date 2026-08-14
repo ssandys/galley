@@ -153,8 +153,19 @@ plugin_state() {
     printf '%s\n' "$DEV_STATE_FIXTURE"
     return 0
   fi
+  # Checked explicitly rather than left to `set -e`: every caller assigns
+  # this function's command-substituted output to a variable, which runs it
+  # in a subshell that bash does not carry errexit into by default. Left
+  # unchecked, a failing `omarchy` here leaves $json empty, `jq -e` exits
+  # non-zero, and the `!` below reads that as a genuine "absent" -- so `down`
+  # would report the dev copy torn down while it is, in fact, still enabled.
   local json
-  json="$(omarchy plugin list --json)"
+  if ! json="$(omarchy plugin list --json)"; then
+    fail "could not query the plugin registry: 'omarchy plugin list --json' failed"
+  fi
+  if ! jq -e . >/dev/null 2>&1 <<<"$json"; then
+    fail "could not query the plugin registry: 'omarchy plugin list --json' did not return valid JSON"
+  fi
   if ! jq -e --arg id "$DEV_ID" 'any(.[]; .id == $id)' >/dev/null <<<"$json"; then
     printf 'absent\n'
   elif jq -e --arg id "$DEV_ID" 'any(.[]; .id == $id and .enabled)' \
@@ -166,13 +177,20 @@ plugin_state() {
 }
 
 down() {
+  # Captured into a variable first, not inlined as `case "$(plugin_state)"`:
+  # that would put plugin_state's own fail() call inside the case word's
+  # command-substitution subshell, where its exit status is discarded rather
+  # than propagated. Assigning it as its own statement here lets a query
+  # failure abort `down` the normal way.
+  local state
+  state="$(plugin_state)"
   # Guard on registration, not enablement: `omarchy plugin disable` returns ok
   # for a known-but-disabled plugin and exits 1 only for an id the registry
   # does not know. Unguarded under `set -e` that aborts before the restart.
   #
   # Neither no-op branch restarts the shell. A restart flickers the whole bar
   # and closes any open panels, which is too rude for "there was nothing to do".
-  case "$(plugin_state)" in
+  case "$state" in
     absent)
       echo "dev: $DEV_ID is not registered; nothing to take down"
       return 0
@@ -180,6 +198,16 @@ down() {
     disabled)
       echo "dev: $DEV_ID is already disabled; nothing to take down"
       return 0
+      ;;
+    enabled)
+      ;;
+    *)
+      # No fall-through to "act": an unrecognised state must not default to
+      # disable-and-restart. Without this arm, a typo, an unexpected-case
+      # fixture, or a future fourth state all fell through the guard above
+      # into the same path as a genuine "enabled", disabling and restarting
+      # the shell for a state this script does not actually understand.
+      fail "unexpected registry state '$state' for $DEV_ID"
       ;;
   esac
   # $DEST is deliberately left in place: it preserves the dev copy's settings,
@@ -189,11 +217,15 @@ down() {
 }
 
 status() {
-  local deployed="no"
+  local deployed="no" state
   [[ -d "$DEST" ]] && deployed="yes ($DEST)"
+  # Captured first for the same reason as in down(): inlined into the echo
+  # below, plugin_state's own fail() would run inside that interpolation's
+  # command-substitution subshell and its exit status would never surface.
+  state="$(plugin_state)"
   echo "id:        $DEV_ID"
   echo "deployed:  $deployed"
-  echo "registry:  $(plugin_state)"
+  echo "registry:  $state"
 }
 
 case "$VERB" in

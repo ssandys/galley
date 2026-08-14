@@ -251,6 +251,57 @@ class DownTest(unittest.TestCase):
         joined = "\n".join(self.out("enabled"))
         self.assertNotIn("rm ", joined)
 
+    def test_unrecognised_state_does_not_act_and_exits_nonzero(self):
+        # The case in down() must not default to "act": a typo, an
+        # unexpected-case fixture, or a future fourth state falling through
+        # the absent/disabled guard must not disable the plugin and restart
+        # the shell for a state this script does not understand.
+        proc = run(["down", "--dry-run"], env={"DEV_STATE_FIXTURE": "typo"})
+        self.assertNotEqual(proc.returncode, 0)
+        joined = "\n".join(lines(proc))
+        self.assertNotIn("restart", joined)
+        self.assertNotIn("plugin disable", joined)
+
+
+class PluginStateQueryTest(unittest.TestCase):
+    """Drives a registry-query failure with an `omarchy` stub on PATH.
+
+    DEV_STATE_FIXTURE bypasses the query entirely, so it can't exercise this
+    path. Putting a failing `omarchy` first on PATH does.
+    """
+
+    def setUp(self):
+        self.stub_dir = tempfile.mkdtemp(prefix="dev-test-path-stub-")
+        self.addCleanup(shutil.rmtree, self.stub_dir, ignore_errors=True)
+        stub = os.path.join(self.stub_dir, "omarchy")
+        with open(stub, "w") as handle:
+            handle.write("#!/usr/bin/env bash\nexit 1\n")
+        os.chmod(stub, 0o755)
+
+    def run_with_broken_omarchy(self, args):
+        merged = dict(os.environ)
+        merged["PATH"] = self.stub_dir + os.pathsep + merged["PATH"]
+        return subprocess.run(["bash", DEV] + args, capture_output=True,
+                              timeout=30, env=merged, cwd=ROOT)
+
+    def test_down_fails_loudly_rather_than_reporting_absent(self):
+        # Without the fix, `set -e` does not abort inside the command
+        # substitution that assigns $json, so a failing `omarchy` leaves it
+        # empty, `jq -e` reads that as "not present", and `down` would print
+        # "is not registered; nothing to take down" and exit 0 -- the user
+        # believes the dev copy is torn down while it is still enabled.
+        proc = self.run_with_broken_omarchy(["down", "--dry-run"])
+        self.assertNotEqual(proc.returncode, 0)
+        out = proc.stdout.decode()
+        self.assertNotIn("not registered", out)
+        self.assertNotIn("plugin disable", out)
+        self.assertNotIn("restart", out)
+
+    def test_status_fails_loudly_rather_than_reporting_absent(self):
+        proc = self.run_with_broken_omarchy(["status"])
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotIn("absent", proc.stdout.decode())
+
 
 class StatusTest(unittest.TestCase):
     def test_reports_id_deployment_and_registry_state(self):
