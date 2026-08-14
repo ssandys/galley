@@ -304,13 +304,24 @@ class PluginStateQueryTest(unittest.TestCase):
 
 
 class StatusTest(unittest.TestCase):
-    def test_reports_id_deployment_and_registry_state(self):
-        proc = run(["status"], env={"DEV_STATE_FIXTURE": "enabled"})
+    def registry_line(self, state):
+        proc = run(["status"], env={"DEV_STATE_FIXTURE": state})
         self.assertEqual(proc.returncode, 0)
         out = proc.stdout.decode()
         self.assertIn("-dev", out)
         self.assertIn("deployed:", out)
-        self.assertIn("enabled", out)
+        return next(line for line in out.splitlines()
+                    if line.startswith("registry:"))
+
+    def test_reports_the_registry_state_the_fixture_says(self):
+        # Asserting only that "enabled" appears when the fixture says
+        # "enabled" would pass even if the fixture were ignored entirely, on
+        # any machine where the dev plugin genuinely is enabled. Checking
+        # both directions forces the fixture to actually be read.
+        self.assertIn("enabled", self.registry_line("enabled"))
+        absent_line = self.registry_line("absent")
+        self.assertIn("absent", absent_line)
+        self.assertNotIn("enabled", absent_line)
 
 
 class PortabilityTest(unittest.TestCase):
@@ -339,11 +350,23 @@ class PortabilityTest(unittest.TestCase):
             "short name": plugin_id.split(".")[-1],
         }
 
+    # bin/dev's header points at the design spec's fixed home, "ssandys/galley"
+    # (the spec's own "Canonical location" note: other repos reference it
+    # rather than holding a copy). That pointer is identical on every port,
+    # including this one, so it costs the byte-identical invariant nothing --
+    # it only happens to collide with the check below, because galley is both
+    # the current repo and the spec's permanent host, and "galley" is this
+    # repo's own short name. Stripped by exact match, not by a general
+    # "galley" filter, so a real leak of the short name anywhere else in the
+    # file still fails loudly.
+    SPEC_HOME_REFERENCE = "ssandys/galley"
+
     def test_scripts_carry_no_plugin_specific_literal(self):
         for relative in self.SCRIPTS:
             path = os.path.join(ROOT, relative)
             with open(path) as handle:
                 source = handle.read()
+            source = source.replace(self.SPEC_HOME_REFERENCE, "")
             for label, literal in self.literals.items():
                 self.assertNotIn(
                     literal, source,

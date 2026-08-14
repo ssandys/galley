@@ -2,14 +2,16 @@
 # Bring the working tree up as a dev plugin, or take it down again.
 #
 #   bin/dev up      [--dry-run]  deploy, register, enable, restart the shell
-#   bin/dev down    [--dry-run]  disable the dev plugin, restart the shell
+#   bin/dev down    [--dry-run]  disable the dev plugin and restart the shell
+#                                (no-op if nothing to disable)
 #   bin/dev deploy  [--dry-run]  deploy only; never touches the running shell
 #   bin/dev status               report what is deployed, registered, enabled
 #
 # Nothing in this script is plugin-specific. The id and display name come from
 # manifest.json and the files carrying them are globbed, so this file is
 # byte-identical across every plugin and is ported by copying it with no edits.
-# See docs/superpowers/specs/2026-08-13-plugin-devkit-design.md
+# See ssandys/galley: docs/superpowers/specs/2026-08-13-plugin-devkit-design.md
+# -- canonical there; other repos reference it rather than holding a copy.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,7 +26,8 @@ usage() {
 usage: bin/dev <verb> [--dry-run]
 
   up      deploy, register, enable the dev plugin, restart the shell
-  down    disable the dev plugin, restart the shell
+  down    disable the dev plugin and restart the shell (no-op if nothing
+          to disable)
   deploy  deploy only; never touches the running shell
   status  report what is deployed, registered, and enabled
 EOF
@@ -53,9 +56,13 @@ run() {
   if (( DRY_RUN )); then printf '%s\n' "$*"; else "$@"; fi
 }
 
-# Escape BRE metacharacters, including the / used as sed's delimiter. The old
-# bin/install escaped only dots, which was enough for an id and is not enough
-# for an arbitrary display name.
+# Escape BRE metacharacters, including the / used as sed's delimiter.
+# Escaping only dots is enough for a lookup keyed on a plugin id, but not for
+# an arbitrary display name, which may contain any of these.
+#
+# This escapes the pattern side only. The replacement side ($DEV_ID and
+# "$NAME (dev)" below) is used raw, so a display name containing & or \ would
+# corrupt the rewrite -- not handled here.
 escape_bre() {
   printf '%s' "$1" | sed 's/[.[\*^$/]/\\&/g'
 }
@@ -71,7 +78,7 @@ deploy() {
   run rsync -a --delete \
     --exclude '.git' --exclude 'tests' --exclude 'bin' --exclude 'docs' \
     --exclude '__pycache__' --exclude '.pytest_cache' --exclude '.github' \
-    --exclude '.superpowers' --exclude '.gitignore' \
+    --exclude '.superpowers' --exclude '.claude' --exclude '.gitignore' \
     --exclude 'README.md' --exclude 'AGENTS.md' --exclude 'CONTRIBUTING.md' \
     "$SRC/" "$DEST/"
 
