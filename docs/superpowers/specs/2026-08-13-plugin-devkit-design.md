@@ -151,6 +151,26 @@ Code hot-reload under `~/.config/omarchy/plugins/` is automatic
 (`README.md:161`) — that is what `bin/dev-watch` relies on. It is *registering a
 new id* that needs the rescan. So the rescan belongs in `up`, not in `deploy`.
 
+**The rescan is asynchronous, and rescanning is not enough on its own.**
+`rescanPlugins` returns over IPC before the shell finishes re-walking the
+plugin directories in the background. Measured live, on a genuinely cold
+start — nothing deployed, the registry never having heard of the dev id —
+the registry caught up roughly 373ms after the call returned. `up` used to
+call `enable` microseconds after the rescan, so it lost that race every
+time: the correct ordering (rescan before enable) was already in place, and
+the first-ever deploy of a fresh clone still failed with omarchy's own "is
+not known; run: rescanPlugins" error, even though the rescan had, in fact,
+already been run. No `--dry-run` test could catch this, since a dry run
+inspects only printed strings and performs no rescan to be caught by; nor
+could `RealDeployTest`, which never touches the registry.
+
+`up` therefore waits after the rescan: it polls the registry (via
+`plugin_state`, the same query `status` and `down` use, driven in tests by
+`DEV_STATE_FIXTURE`) until it reports the dev id as something other than
+absent, bounded by a timeout so a genuine failure to register surfaces as a
+clear error rather than a hang. This wait, not just the ordering, is what
+makes a first-ever deploy on a fresh clone actually succeed.
+
 ### `down` must guard on registration, not enablement
 
 `omarchy-plugin-disable:22-24` fails only when the id is unknown to the registry.

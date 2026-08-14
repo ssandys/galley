@@ -138,6 +138,20 @@ up() {
   # never seen, and its own error message names rescanPlugins as the fix. The
   # documented install sequence is put-files, rescan, enable, in that order.
   run omarchy-shell shell rescanPlugins
+  # rescanPlugins is fire-and-forget over IPC: the call above returns before
+  # the shell finishes re-walking the plugin directories in the background.
+  # Measured on this machine, the registry catches up a few hundred
+  # milliseconds (~373ms) after the call returns, and `enable` used to run
+  # microseconds later -- so every first-ever deploy of a fresh clone lost
+  # that race and failed with omarchy's own "is not known; run:
+  # rescanPlugins" error, even though the rescan had, in fact, already been
+  # run moments earlier. This is the bug live verification caught on a
+  # genuinely cold start, reproduced twice; no --dry-run test could see it,
+  # since --dry-run only inspects printed strings and skips the wait below
+  # entirely -- there is nothing deployed or rescanned to wait for, and
+  # polling here would either hang against the real registry or print a line
+  # the dry-run tests don't expect.
+  (( DRY_RUN )) || wait_for_registration
   # No placement argument: manifest.json's barWidget.defaultSection already
   # declares it and `enable` honours it, so a down/up cycle restores the widget
   # unaided. Passing one on every `up` would overwrite a hand-moved position.
@@ -181,6 +195,38 @@ plugin_state() {
   else
     printf 'disabled\n'
   fi
+}
+
+# Polls plugin_state() until the rescan's background re-walk has caught up
+# and the registry reports something other than "absent", rather than
+# trusting that a returned IPC call means the shell is actually done -- see
+# the comment above the call site in up() for why that assumption used to
+# fail. Reuses plugin_state() rather than querying the registry a second
+# way, which is also what makes this testable: DEV_STATE_FIXTURE and the
+# PATH-shim tests in tests/test_dev.py both drive it through there.
+#
+# Bounded so a genuine problem -- the id truly never registers -- surfaces
+# as a clear error instead of hanging forever or falling through to
+# omarchy's own, less helpful one.
+#
+# DEV_WAIT_TIMEOUT overrides the timeout below, in seconds; test-only,
+# unset in normal use, in the same spirit as DEV_STATE_FIXTURE.
+wait_for_registration() {
+  local timeout="${DEV_WAIT_TIMEOUT:-10}" interval=0.1
+  # interval is 0.1s, i.e. 10 iterations per second of $timeout.
+  local max_iters=$(( timeout * 10 ))
+  local iter=0
+  while [[ "$(plugin_state)" == "absent" ]]; do
+    (( iter >= max_iters )) &&
+      fail "$DEV_ID never registered in the plugin registry after rescanPlugins (waited ${timeout}s) -- the rescan's background re-walk may not have finished, or the id is still unknown to it"
+    sleep "$interval"
+    # Not `(( iter++ ))`: that post-increment evaluates to iter's old value,
+    # which is 0 on the first pass, and a bare `(( expr ))` that evaluates to
+    # 0 is a false command -- under `set -e` that silently kills the script
+    # after exactly one iteration, with no fail() message at all. A plain
+    # assignment's exit status doesn't depend on the value it assigns.
+    iter=$(( iter + 1 ))
+  done
 }
 
 down() {

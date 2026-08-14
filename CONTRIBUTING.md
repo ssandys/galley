@@ -63,7 +63,9 @@ The registration step in `up` is not decoration. `omarchy plugin enable`
 exits non-zero for an id the registry has never seen, which is every first
 deploy of a fresh clone, so `up` runs `omarchy-shell shell rescanPlugins`
 first. `bin/install` skipped that and only worked on a machine where the dev
-id already existed.
+id already existed. That rescan itself is asynchronous — it returns before
+the shell has actually finished registering the id — so `up` then waits,
+polling the registry until the id lands, before calling `enable`.
 
 That deploys to `~/.config/omarchy/plugins/ssandys.galley-dev/` under the
 plugin id **`ssandys.galley-dev`**, excluding everything not needed at

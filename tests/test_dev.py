@@ -250,6 +250,140 @@ class UpTest(unittest.TestCase):
         self.assertRegex(enable, r"^omarchy plugin enable \S+$")
 
 
+class UpWaitsForRegistrationTest(unittest.TestCase):
+    """Drives `up` for real against a scratch $HOME with a PATH-shimmed
+    registry, proving it polls the registry after the rescan instead of
+    racing straight into `enable`.
+
+    This is the bug live verification caught on a genuinely cold start:
+    `rescanPlugins` is asynchronous -- the IPC call returns before the shell
+    finishes re-walking the plugin directories in the background -- so
+    `enable` right after it lost the race on a first-ever deploy. No
+    --dry-run test could see this, since --dry-run only inspects printed
+    strings and skips the wait entirely; RealDeployTest never touches the
+    registry at all.
+
+    DEV_STATE_FIXTURE can't drive this: it returns one fixed answer for the
+    whole run, and this needs the answer to change mid-run. So instead of
+    the fixture, this shims `omarchy` and `omarchy-shell` on PATH -- both
+    binaries, since `up` calls both -- with scripts that report the dev id
+    absent for their first few `plugin list --json` calls and present after,
+    using a counter file to persist state across the separate invocations
+    `up` makes. HOME is pinned to a scratch directory, exactly as in
+    RealDeployTest, so `deploy` (which `up` runs first) is fully hermetic;
+    the shim on top of that means `up` itself never reaches the real
+    registry or the real desktop shell.
+    """
+
+    OMARCHY_STUB = '''#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-} ${2:-}" in
+  "plugin list")
+    count=0
+    [[ -f "%(counter)s" ]] && count="$(cat "%(counter)s")"
+    count=$((count + 1))
+    echo "$count" > "%(counter)s"
+    if (( count <= %(flip_after)d )); then
+      echo '[]'
+    else
+      echo '[{"id":"%(dev_id)s","enabled":false}]'
+    fi
+    ;;
+  "plugin enable")
+    exit 0
+    ;;
+  "restart shell")
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+'''
+
+    OMARCHY_SHELL_STUB = "#!/usr/bin/env bash\nexit 0\n"
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "manifest.json")) as handle:
+            manifest = json.load(handle)
+        self.dev_id = f"{manifest['id']}-dev"
+        self.home = tempfile.mkdtemp(prefix="dev-test-up-home-")
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.stub_dir = tempfile.mkdtemp(prefix="dev-test-up-stub-")
+        self.addCleanup(shutil.rmtree, self.stub_dir, ignore_errors=True)
+        self.counter = os.path.join(self.stub_dir, "calls")
+
+        shell_stub = os.path.join(self.stub_dir, "omarchy-shell")
+        with open(shell_stub, "w") as handle:
+            handle.write(self.OMARCHY_SHELL_STUB)
+        os.chmod(shell_stub, 0o755)
+
+    def write_omarchy_stub(self, flip_after):
+        """flip_after: how many `plugin list` calls report the id absent
+        before it starts reporting present. A huge value never flips, for
+        the timeout test."""
+        stub = os.path.join(self.stub_dir, "omarchy")
+        with open(stub, "w") as handle:
+            handle.write(self.OMARCHY_STUB % {
+                "counter": self.counter,
+                "flip_after": flip_after,
+                "dev_id": self.dev_id,
+            })
+        os.chmod(stub, 0o755)
+
+    def call_count(self):
+        if not os.path.exists(self.counter):
+            return 0
+        with open(self.counter) as handle:
+            return int(handle.read().strip())
+
+    def run_up(self, env_extra=None):
+        merged = dict(os.environ)
+        merged["HOME"] = self.home
+        merged["PATH"] = self.stub_dir + os.pathsep + merged["PATH"]
+        if env_extra:
+            merged.update(env_extra)
+
+        # Confirm the shim, not the real system, is what `up` will reach.
+        # A failure here means this test itself would touch the live
+        # omarchy desktop -- the one thing this suite must never do.
+        which = subprocess.run(
+            ["bash", "-c", "command -v omarchy && command -v omarchy-shell"],
+            capture_output=True, env=merged)
+        self.assertEqual(which.returncode, 0, which.stderr.decode())
+        resolved = which.stdout.decode().splitlines()
+        self.assertEqual(len(resolved), 2, resolved)
+        for path in resolved:
+            self.assertTrue(
+                path.startswith(self.stub_dir),
+                f"real omarchy binary reachable on PATH: {path}")
+
+        return subprocess.run(["bash", DEV, "up"], capture_output=True,
+                              timeout=30, cwd=ROOT, env=merged)
+
+    def test_up_waits_for_the_registry_then_succeeds(self):
+        self.write_omarchy_stub(flip_after=3)
+        proc = self.run_up()
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertGreater(
+            self.call_count(), 1,
+            "the registry was queried only once -- up raced straight into "
+            "enable instead of polling for the rescan to land")
+
+    def test_up_times_out_with_a_clear_message_instead_of_hanging(self):
+        # Reports absent forever. Without the fix this would hang until
+        # `enable` fails on its own; with the fix, and DEV_WAIT_TIMEOUT
+        # overridden, it fails fast with a message naming the id rather than
+        # actually waiting out the real 10-second default.
+        self.write_omarchy_stub(flip_after=999999)
+        proc = self.run_up(env_extra={"DEV_WAIT_TIMEOUT": "1"})
+        self.assertNotEqual(proc.returncode, 0)
+        err = proc.stderr.decode()
+        self.assertIn(self.dev_id, err)
+        self.assertIn("regist", err.lower())
+        self.assertGreater(self.call_count(), 1)
+
+
 class DownTest(unittest.TestCase):
     def out(self, state):
         return lines(run(["down", "--dry-run"], env={"DEV_STATE_FIXTURE": state}))
