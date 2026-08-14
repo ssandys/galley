@@ -49,6 +49,22 @@ shell, enables the plugin, and restarts the shell. The widget lands in the
 section `manifest.json` declares as `barWidget.defaultSection`, so no
 separate `omarchy bar move` is needed.
 
+`bin/dev` has four verbs, and every one of them takes `--dry-run`, which
+prints the exact command sequence instead of performing any of it:
+
+| Verb | What it does |
+|---|---|
+| `up` | deploy, register, enable, restart the shell |
+| `down` | disable the dev plugin and restart the shell — a no-op, with no restart, if there is nothing to disable |
+| `deploy` | deploy only; never touches the running shell |
+| `status` | the dev id, whether it is deployed, and whether the registry has it enabled |
+
+The registration step in `up` is not decoration. `omarchy plugin enable`
+exits non-zero for an id the registry has never seen, which is every first
+deploy of a fresh clone, so `up` runs `omarchy-shell shell rescanPlugins`
+first. `bin/install` skipped that and only worked on a machine where the dev
+id already existed.
+
 That deploys to `~/.config/omarchy/plugins/ssandys.galley-dev/` under the
 plugin id **`ssandys.galley-dev`**, excluding everything not needed at
 runtime (`.git`, `tests/`, `bin/`, `docs/`, and the markdown docs). You can
@@ -126,6 +142,40 @@ recorded fixture instead of calling `ipptool`:
 ```bash
 GALLEY_FIXTURE=tests/fixtures/busy python3 scripts/galley_collect.py
 ```
+
+## Porting the dev toolchain to another plugin
+
+`bin/dev`, `bin/dev-watch` and `bin/test` contain **no plugin-specific
+literal**. The id and display name come from `manifest.json`, the files
+carrying them are globbed rather than named, and the lint and syntax checks
+glob too. So the three scripts are byte-identical across every plugin, and
+porting them is a copy with no edits:
+
+```bash
+cd ~/Src/<other-plugin>
+cp ../galley/bin/dev ../galley/bin/dev-watch ../galley/bin/test bin/
+cp ../galley/tests/test_dev.py tests/
+chmod +x bin/dev bin/dev-watch bin/test
+git rm bin/install
+bin/test
+```
+
+`tests/__init__.py` must exist — `unittest discover -t .` needs `tests/` to be
+importable — and nothing in `bin/test` checks the executable bit, hence the
+`chmod`.
+
+**If a port needs you to edit a copied script, the derivation is incomplete
+and it is this repo's bug to fix, not the destination's to patch.**
+`tests/test_dev.py`'s `PortabilityTest` enforces that: it reads the id and
+name from whichever `manifest.json` it finds, so it ports unchanged and fails
+in the destination repo if a literal slipped through.
+
+One limit worth knowing, because it decides where a mistake surfaces. The
+guard only knows *its own* repo's names, so another plugin's name written into
+these scripts is invisible here and only fails in the repo you copy them into —
+at that first `bin/test`, not before. The reasoning behind all of this is in
+`docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`, which is the
+canonical copy; sibling repos reference it rather than holding their own.
 
 ## Tests
 
