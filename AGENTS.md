@@ -156,10 +156,10 @@ tested against dicts you can write by hand. See any of the tests in
   count grows over time -- read it off the test output rather than trusting
   a number here), and `node --test tests/model.test.js` (same caveat -- read
   the count off the test output rather than trusting a number here). As of
-  this writing the Python suite is 61 tests, one of which
+  this writing the Python suite is 85 tests, one of which
   (`tests/test_cross_language.py`'s waste-toner JS guard) shells out to
   `node` itself and is skipped, not silently passed, if `node` is missing,
-  and the JS suite is 37 tests.
+  and the JS suite is 45 tests.
 
   **`qmllint` only catches syntax errors.** It cannot resolve Quickshell or
   Omarchy imports (`qs.Commons`, `qs.Ui`, `Panel`, `WidgetButton`, and so
@@ -171,19 +171,30 @@ tested against dicts you can write by hand. See any of the tests in
   this suite.
 
 - `./bin/dev-watch` watches the source tree with `inotifywait` and reruns
-  `bin/install` on every save, so the deployed copy under
+  `bin/dev deploy` on every save, so the deployed copy under
   `~/.config/omarchy/plugins/ssandys.galley-dev/` always matches your working
   tree.
 
   **That deployed copy is a different plugin than the published one.**
-  `bin/install` rewrites the manifest id, the display name, and `Panel.qml`'s
-  `moduleName`/`ipcTarget` to `ssandys.galley-dev` on the way out, so a dev
-  install can sit alongside `ssandys.galley` without colliding — the registry
-  keys plugins by manifest id, and duplicate third-party ids overwrite each
-  other silently. The rewrite happens in `$DEST`, never in the source tree:
-  if you find yourself editing `manifest.json`'s id or those two `Panel.qml`
-  properties to make something work, you're solving it in the wrong place.
-  `CONTRIBUTING.md` has the full reasoning.
+  `bin/dev` rewrites the manifest id, the display name, and the
+  `moduleName`/`ipcTarget` properties in every top-level QML file to
+  `ssandys.galley-dev` on the way out, so a dev install can sit alongside
+  `ssandys.galley` without colliding — the registry keys plugins by manifest
+  id, and duplicate third-party ids overwrite each other silently. The
+  rewrite happens in `$DEST`, never in the source tree: if you find yourself
+  editing `manifest.json`'s id or those QML properties to make something
+  work, you're solving it in the wrong place. The full reasoning is in
+  `CONTRIBUTING.md`; the portable-devkit design is in
+  `docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`.
+
+  **The portability guard only sees this repo's own literals.**
+  `tests/test_dev.py`'s `PortabilityTest` derives the id, display name, and
+  short name it checks for from this repo's `manifest.json`, so it cannot
+  detect another plugin's name written into `bin/dev`, `bin/dev-watch`, or
+  `bin/test` — a stray `colophon` here would pass galley's `bin/test` clean
+  and only surface as a failure in colophon's own copy of the same test, at
+  the moment of porting. The destination repo's first `bin/test` run after a
+  copy is where a cross-plugin leak like that actually gets caught.
 
   **This does not solve the restart gotcha.** Quickshell hot-reloads a
   plugin's *code* on file change, but if you changed the widget's

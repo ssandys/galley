@@ -23,7 +23,7 @@ On top of the runtime requirements in `README.md`:
 
 | Program | Used for | Arch package |
 |---|---|---|
-| `rsync` | `bin/install` | `rsync` |
+| `rsync` | `bin/dev` | `rsync` |
 | `inotifywait` | `bin/dev-watch` | `inotify-tools` |
 | `jq` | Manifest validation in `bin/test` | `jq` |
 | `node` | `Model.js` tests | `nodejs` |
@@ -36,14 +36,36 @@ a sign anything is broken.
 ## Running from a source checkout
 
 Don't install the published plugin and edit it in place; work from a clone
-and deploy with `bin/install`:
+and bring it up with `bin/dev`:
 
 ```bash
 git clone https://github.com/ssandys/galley.git ~/Src/galley
 cd ~/Src/galley
-./bin/install
-omarchy bar move ssandys.galley-dev --section right
+./bin/dev up
 ```
+
+`bin/dev up` deploys the working tree, registers the dev id with the running
+shell, enables the plugin, and restarts the shell. The widget lands in the
+section `manifest.json` declares as `barWidget.defaultSection`, so no
+separate `omarchy bar move` is needed.
+
+`bin/dev` has four verbs, and every one of them takes `--dry-run`, which
+prints the exact command sequence instead of performing any of it:
+
+| Verb | What it does |
+|---|---|
+| `up` | deploy, register, enable, restart the shell |
+| `down` | disable the dev plugin and restart the shell — a no-op, with no restart, if there is nothing to disable |
+| `deploy` | deploy only; never touches the running shell |
+| `status` | the dev id, whether it is deployed, and whether the registry has it enabled |
+
+The registration step in `up` is not decoration. `omarchy plugin enable`
+exits non-zero for an id the registry has never seen, which is every first
+deploy of a fresh clone, so `up` runs `omarchy-shell shell rescanPlugins`
+first. `bin/install` skipped that and only worked on a machine where the dev
+id already existed. That rescan itself is asynchronous — it returns before
+the shell has actually finished registering the id — so `up` then waits,
+polling the registry until the id lands, before calling `enable`.
 
 That deploys to `~/.config/omarchy/plugins/ssandys.galley-dev/` under the
 plugin id **`ssandys.galley-dev`**, excluding everything not needed at
@@ -61,30 +83,44 @@ warning, and which copy survives comes down to glob order. Renaming only the
 directory would give you a dev install that is sometimes the code you're
 editing and sometimes isn't.
 
-So `bin/install` rewrites the identity *in the deployed copy* — the manifest
-id, the display name, and `Panel.qml`'s `moduleName` and `ipcTarget` — and
-then asserts the rewrite landed rather than trusting the `sed`. The source
-tree stays canonical, which is the point: no permanent dirt in `git status`,
-and nothing to remember not to commit. If you ever change the id in
-`manifest.json`, `bin/install` picks it up automatically; it derives the dev
-id from the source manifest instead of hardcoding it.
+So `bin/dev` rewrites the identity *in the deployed copy* — the manifest id,
+the display name, and the `moduleName`/`ipcTarget` properties in every
+top-level QML file — and then asserts the rewrite landed rather than
+trusting the `sed`. The source tree stays canonical, which is the point: no
+permanent dirt in `git status`, and nothing to remember not to commit. If
+you ever change the id in `manifest.json`, `bin/dev` picks it up
+automatically; it derives the dev id from the source manifest instead of
+hardcoding it.
 
 Because settings in `shell.json` are keyed by plugin id, the dev copy starts
 from the manifest defaults and keeps its own configuration. Tuning a poll
 interval on `ssandys.galley-dev` will not touch your real one.
 
-To summon it, or to remove it when you're done:
+To take the dev copy down when you're done:
 
 ```bash
-omarchy-shell shell toggle ssandys.galley-dev
+./bin/dev down
+```
+
+That disables the dev plugin and restarts the shell — unless there was nothing
+to disable, in which case it says so and leaves your shell alone rather than
+flickering the whole bar for a no-op. It deliberately leaves
+`~/.config/omarchy/plugins/ssandys.galley-dev/` in place, so the dev copy's
+settings survive and the next `bin/dev up` is cheap; `rsync --delete` makes
+the redeploy idempotent regardless. `./bin/dev status` reports what is
+deployed and whether it is enabled. To reclaim the disk as well:
+
+```bash
 rm -rf ~/.config/omarchy/plugins/ssandys.galley-dev
 ```
 
 ## The edit loop
 
 `./bin/dev-watch` watches the source tree with `inotifywait` and reruns
-`bin/install` on every save, so the deployed copy always matches your working
-tree.
+`bin/dev deploy` on every save, so the deployed copy always matches your
+working tree. It uses `deploy` rather than `up` on purpose: `up` restarts the
+shell, and doing that on every keystroke-to-disk would flicker the whole bar
+continuously.
 
 **It does not solve the restart gotcha.** Quickshell hot-reloads a plugin's
 *code* on file change, but if you changed the widget's *structure* — a new
@@ -108,6 +144,40 @@ recorded fixture instead of calling `ipptool`:
 ```bash
 GALLEY_FIXTURE=tests/fixtures/busy python3 scripts/galley_collect.py
 ```
+
+## Porting the dev toolchain to another plugin
+
+`bin/dev`, `bin/dev-watch` and `bin/test` contain **no plugin-specific
+literal**. The id and display name come from `manifest.json`, the files
+carrying them are globbed rather than named, and the lint and syntax checks
+glob too. So the three scripts are byte-identical across every plugin, and
+porting them is a copy with no edits:
+
+```bash
+cd ~/Src/<other-plugin>
+cp ../galley/bin/dev ../galley/bin/dev-watch ../galley/bin/test bin/
+cp ../galley/tests/test_dev.py tests/
+chmod +x bin/dev bin/dev-watch bin/test
+git rm bin/install
+bin/test
+```
+
+`tests/__init__.py` must exist — `unittest discover -t .` needs `tests/` to be
+importable — and nothing in `bin/test` checks the executable bit, hence the
+`chmod`.
+
+**If a port needs you to edit a copied script, the derivation is incomplete
+and it is this repo's bug to fix, not the destination's to patch.**
+`tests/test_dev.py`'s `PortabilityTest` enforces that: it reads the id and
+name from whichever `manifest.json` it finds, so it ports unchanged and fails
+in the destination repo if a literal slipped through.
+
+One limit worth knowing, because it decides where a mistake surfaces. The
+guard only knows *its own* repo's names, so another plugin's name written into
+these scripts is invisible here and only fails in the repo you copy them into —
+at that first `bin/test`, not before. The reasoning behind all of this is in
+`docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`, which is the
+canonical copy; sibling repos reference it rather than holding their own.
 
 ## Tests
 
