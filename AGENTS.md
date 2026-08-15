@@ -42,11 +42,14 @@ else in the panel reads from the resulting `snapshot` plus other pure
    node — which is why you'll see modern JS like `Object.assign` and spread
    there and nowhere in `Model.js` itself.)
 
-`printerGlyph(state)` in `Model.js` is exported but has no caller anywhere
-in `Panel.qml` — the bar glyph is currently the fixed `root.barIcon`
-constant, not state-dependent. It's dead code left over from an earlier
-design; either wire it up or remove it, but it's a deliberate open question,
-not an oversight to silently "fix" one way.
+The bar glyph is the fixed `root.barIcon` constant, deliberately not
+state-dependent. `Model.js` used to export a `printerGlyph(state)` that
+returned a different glyph for `printing`/`stopped`; it never had a caller and
+was deleted (#2). Colour already carries error and warn state on the bar —
+`Model.barSeverity` drives the button's `foreground` — so a state-aware glyph
+would be a second, redundant encoding of the same information, and one that
+fights the badge for the same few pixels. If you want state in the glyph,
+that's a design change to argue for, not a gap to fill.
 
 ## Traps
 

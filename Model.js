@@ -48,12 +48,6 @@ function parseSnapshot(raw) {
   }
 }
 
-function printerGlyph(state) {
-  if (state === "printing") return "󰐪"
-  if (state === "stopped") return "󰐮"
-  return "󰐪"
-}
-
 // Mirrors ERROR_REASONS in scripts/galley_normalize.py — the two MUST agree.
 // Python drives summary.errorPrinters; this drives the bar and card colors.
 // A divergence shows up as a red printer next to a "0 errors" summary.
@@ -138,7 +132,9 @@ function supplyLabel(supply) {
 
 function supplyColor(supply, threshold, fallback) {
   // waste-toner polarity is vendor-dependent and undefined by IPP, so it is
-  // shown but never warned on.
+  // shown but never warned on. Only waste-toner: an "other"-typed marker (a
+  // Belt Unit, on this hardware) still follows percent-remaining and warns
+  // normally. The exclusion is about undefined polarity, not vague type names.
   if (!supply || supply.type === "waste-toner") return fallback
   if (typeof supply.level !== "number") return fallback
   if (supply.level < threshold) return COLOR_ERROR
@@ -327,6 +323,8 @@ function diffSnapshots(prev, next, options) {
     var supplies = printer.supplies || []
     for (var s = 0; s < supplies.length; s++) {
       var supply = supplies[s]
+      // waste-toner only -- see supplyColor. An "other"-typed marker such as a
+      // Belt Unit does raise a supply-low notification, deliberately.
       if (supply.type === "waste-toner") continue
       if (typeof supply.level !== "number") continue
 
@@ -349,7 +347,6 @@ if (typeof module !== "undefined") {
   module.exports = {
     EMPTY_SNAPSHOT: EMPTY_SNAPSHOT,
     parseSnapshot: parseSnapshot,
-    printerGlyph: printerGlyph,
     printerHasError: printerHasError,
     isErrorReason: isErrorReason,
     printerColor: printerColor,
