@@ -208,7 +208,7 @@ Panel {
           spacing: Style.space(6)
 
           Repeater {
-            model: controller.dataVersion >= 0 ? (controller.snapshot.printers || []) : []
+            model: controller.snapshot.printers || []
 
             delegate: BorderSurface {
               required property var modelData
@@ -480,7 +480,7 @@ Panel {
             spacing: Style.space(2)
 
             Repeater {
-              model: controller.dataVersion >= 0 ? root.visibleJobs() : []
+              model: root.visibleJobs()
 
               delegate: RowLayout {
                 required property var modelData

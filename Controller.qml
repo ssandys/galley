@@ -12,12 +12,17 @@ import "Model.js" as Model
 // plugin's Service.qml, split out from the start for this reason.
 //
 // The seam is narrow on purpose. Panel.qml reads seven properties from here
-// (snapshot, dataVersion, cupsdState, collectorError, actionInProgress,
-// actionError, supplyThreshold) plus showSupplies, and calls three functions
-// (refresh, runAction, statusSnapshot). Everything else below is private
-// machinery: `previousSnapshot`, `armedSupplies`, `jobWasActive`,
+// (snapshot, cupsdState, collectorError, actionInProgress, actionError,
+// supplyThreshold, showSupplies) and calls three functions (refresh,
+// runAction, statusSnapshot). Everything else below is private machinery:
+// `dataVersion`, `previousSnapshot`, `armedSupplies`, `jobWasActive`,
 // `pendingRefresh`, `notifyQueue` and `actionExited` have no reader outside
 // this file, and that is the point of the split.
+//
+// `dataVersion` joined that private list when the inert `dataVersion >= 0`
+// guards came out of Panel.qml's two Repeater models. It still earns its
+// keep here: `dataVersion > 0` in handleOutput() is what distinguishes the
+// first load, and that is what keeps startup silent.
 Item {
   id: root
 
