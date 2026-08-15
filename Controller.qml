@@ -15,7 +15,7 @@ import "Model.js" as Model
 // (snapshot, dataVersion, cupsdState, collectorError, actionInProgress,
 // actionError, supplyThreshold) plus showSupplies, and calls three functions
 // (refresh, runAction, statusSnapshot). Everything else below is private
-// machinery: `loading`, `previousSnapshot`, `armedSupplies`, `jobWasActive`,
+// machinery: `previousSnapshot`, `armedSupplies`, `jobWasActive`,
 // `pendingRefresh`, `notifyQueue` and `actionExited` have no reader outside
 // this file, and that is the point of the split.
 Item {
@@ -46,7 +46,6 @@ Item {
   property string actionError: ""
 
   // Private machinery. No reader in Panel.qml.
-  property bool loading: false
   property bool actionExited: false
   property bool pendingRefresh: false
   property var previousSnapshot: null
@@ -149,7 +148,6 @@ Item {
       return
     }
     pendingRefresh = false
-    loading = true
     var args = ["python3", root.collectPath,
       "--threshold", String(root.supplyThreshold)]
     if (root.jobWasActive) args.push("--completed")
@@ -176,7 +174,6 @@ Item {
     var next = Model.parseSnapshot(raw)
     root.cupsdState = next.cupsd
     root.collectorError = next.error || ""
-    root.loading = false
     // A collector error or an asleep cupsd must not destroy good content:
     // only a "running" response replaces the retained snapshot. This is
     // also why dispatchNotifications() lives inside this branch — calling
@@ -238,9 +235,12 @@ Item {
     onRunningChanged: {
       if (collectProc.running) return
       // Quickshell does not call streamEnded() when a process fails to
-      // spawn, so handleOutput never runs. Clearing here as well is what
-      // keeps `loading` from sticking true forever.
-      root.loading = false
+      // spawn, so handleOutput never runs. Re-triggering here is therefore
+      // the only thing that keeps a coalesced refresh from being dropped
+      // silently: refresh() sets pendingRefresh and returns when a collect
+      // is already in flight, trusting this handler to run it afterwards.
+      // Small block, load-bearing: deleting it drops the second of two
+      // rapid refreshes with no error anywhere.
       if (root.pendingRefresh) Qt.callLater(root.refresh)
     }
   }
