@@ -77,8 +77,8 @@ Panel {
     text: root.barIcon
     foreground: {
       var severity = Model.barSeverity(controller.statusSnapshot())
-      if (severity === "error") return "#ef4444"
-      if (severity === "warn") return "#eab308"
+      if (severity === "error") return Model.COLOR_ERROR
+      if (severity === "warn") return Model.COLOR_WARN
       // Bar chrome convention (WidgetButton's own default, base Ui/Panel,
       // tailscale/Panel.qml): barForeground for the glyph, foreground for
       // panel content. Without this, a transparent bar recolors every
@@ -329,7 +329,7 @@ Panel {
 
                   Button {
                     text: modelData.state === "stopped" ? "resume" : "pause"
-                    foreground: modelData.state === "stopped" ? "#22c55e" : root.fg
+                    foreground: modelData.state === "stopped" ? Model.COLOR_OK : root.fg
                     tooltipText: modelData.state === "stopped"
                       ? "Resume printing on this queue"
                       : "Stop this queue; jobs stay pending"
@@ -347,7 +347,7 @@ Panel {
                   Button {
                     visible: modelData.queuedJobCount > 0
                     text: "cancel all"
-                    foreground: "#ef4444"
+                    foreground: Model.COLOR_ERROR
                     tooltipText: "Cancel every job you own on this queue"
                     fontFamily: root.fontFamily
                     fontSize: Style.font.caption
@@ -418,7 +418,7 @@ Panel {
           visible: controller.cupsdState === "error" && (controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
           text: "Showing last known data — " + (controller.collectorError || "collector error")
-          color: "#ef4444"
+          color: Model.COLOR_ERROR
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
@@ -445,7 +445,7 @@ Panel {
           visible: controller.cupsdState === "error" && (controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: controller.collectorError || "Collector failed"
-          color: "#ef4444"
+          color: Model.COLOR_ERROR
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
@@ -540,7 +540,7 @@ Panel {
 
                 Button {
                   text: "✕"
-                  foreground: modelData.mine ? "#ef4444" : root.dim
+                  foreground: modelData.mine ? Model.COLOR_ERROR : root.dim
                   // _user_cancel_any is 0, so only the owner may cancel.
                   enabled: modelData.mine && controller.actionInProgress === ""
                   opacity: enabled ? 1.0 : 0.4
@@ -562,7 +562,7 @@ Panel {
           visible: controller.actionError !== ""
           Layout.fillWidth: true
           text: controller.actionError
-          color: "#ef4444"
+          color: Model.COLOR_ERROR
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap

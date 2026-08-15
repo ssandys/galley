@@ -368,46 +368,65 @@ class WasteTonerExclusionTest(unittest.TestCase):
             "marker crossing the threshold, expected 1" % (out["otherEvents"],),
         )
 class ColorPaletteTest(unittest.TestCase):
-    """Every hex color literal in Panel.qml must be one of Model.js's
-    COLOR_* constants, so the two cannot silently drift apart.
+    """No *.qml file may contain a hex colour literal at all.
 
-    Model.js defines COLOR_OK/WARN/ERROR/BUSY; Panel.qml hardcodes the same
-    hex values inline instead of importing them (COLOR_OK is unused in
-    Model.js *because* Panel.qml inlines its value). This test does NOT fix
-    that duplication -- consuming the palette properly in Panel.qml is still
-    the real fix -- it only freezes the current state so a one-sided edit is
-    caught instead of shipped silently.
+    Model.js owns the palette -- COLOR_OK/WARN/ERROR/BUSY -- and the QML
+    consumes it as Model.COLOR_*. This is the inverse, and strictly stronger
+    form of the guard that used to live here: rather than checking that every
+    inlined hex matched the palette, it asserts there is nothing to match,
+    because the duplication is gone.
+
+    That earlier version existed only because Panel.qml hardcoded the same hex
+    values inline, which also left COLOR_OK dead inside Model.js -- unused there
+    *because* the QML had its own copy. Both are fixed (galley#6), so freezing
+    the duplication is no longer the job; preventing its return is.
+
+    A drift this guard cannot see: qmllint does not resolve Model.* lookups, so
+    a typo'd Model.COLOR_EROR renders as a default colour and passes silently.
+    That was verified by hand under a standalone qml runtime when the palette
+    was first consumed. It is the reason the palette is read through one import
+    rather than restated per call site -- one lookup to get wrong, not eight.
     """
 
-    def test_qml_hex_colors_are_all_in_the_js_palette(self):
-        js_source = read("Model.js")
-        palette = dict(re.findall(
-            r'var (COLOR_\w+) = "(#[0-9a-fA-F]{6})"', js_source
-        ))
-        self.assertTrue(
-            palette,
-            "no COLOR_* constants found in Model.js -- the regex is broken, "
-            "not passing",
-        )
-        palette_values = set(palette.values())
-
-        qml_colors = {}
+    def test_no_qml_file_contains_a_hex_colour_literal(self):
+        offenders = {}
         for name, source in qml_sources():
-            for color in re.findall(r"#[0-9a-fA-F]{6}", source):
-                qml_colors.setdefault(color, name)
-        self.assertTrue(
-            qml_colors,
-            "no hex color literals found in any *.qml file -- the regex is "
-            "broken, not passing",
+            found = re.findall(r"#[0-9a-fA-F]{6}", source)
+            if found:
+                offenders[name] = sorted(set(found))
+        self.assertEqual(
+            offenders, {},
+            "hex colour literals found in QML: %r. Model.js owns the palette; "
+            "use Model.COLOR_OK/WARN/ERROR/BUSY instead of inlining a value, "
+            "so the two cannot drift apart (galley#6)." % (offenders,),
         )
 
-        for color in sorted(qml_colors):
-            self.assertIn(
-                color, palette_values,
-                "%s appears in %s but is not one of Model.js's "
-                "COLOR_* constants (%r) -- the two palettes have diverged"
-                % (color, qml_colors[color], palette_values),
-            )
+    def test_the_qml_actually_consumes_the_palette(self):
+        # Control for the assertion above, which a QML file with no colours at
+        # all would satisfy vacuously -- including one where every Model.COLOR_*
+        # reference had been deleted rather than the literals replaced.
+        consumers = {}
+        for name, source in qml_sources():
+            refs = set(re.findall(r"Model\.(COLOR_\w+)", source))
+            if refs:
+                consumers[name] = sorted(refs)
+        self.assertTrue(
+            consumers,
+            "no *.qml file references Model.COLOR_* -- the palette is exported "
+            "but nothing consumes it, so the guard above passes vacuously",
+        )
+
+        palette = set(re.findall(r'var (COLOR_\w+) = "#[0-9a-fA-F]{6}"',
+                                 read("Model.js")))
+        self.assertTrue(palette, "no COLOR_* constants found in Model.js")
+        for name, refs in consumers.items():
+            for ref in refs:
+                self.assertIn(
+                    ref, palette,
+                    "%s references Model.%s, which Model.js does not define -- "
+                    "qmllint cannot catch this and it renders as a default "
+                    "colour at runtime" % (name, ref),
+                )
 
 
 if __name__ == "__main__":
