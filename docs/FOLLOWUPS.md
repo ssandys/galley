@@ -70,10 +70,8 @@ behaviour. If you add a sixth crossing, execute it.
 
 ## Documentation drift
 
-Not filed as issues — four small edits, one PR's worth of work.
+Not filed as issues — three small edits, one PR's worth of work.
 
-- The spec specifies the old `󰐪` glyph; the code ships ``, changed
-  deliberately in `c5f83a1`/`1210340` and never written back.
 - The spec says a failed action shows an "inline error on the card"; the code
   shows one shared strip at the panel bottom. Reasonable simplification,
   undocumented.

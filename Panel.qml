@@ -27,7 +27,16 @@ Panel {
   // not of the collector, so it stays here.
   property string selectedPrinter: ""
 
-  readonly property string barIcon: "\uf02f"
+  // Written as an escape rather than a pasted glyph, per c5f83a1 -- a literal
+  // astral-plane character gets mangled by tooling that round-trips this file.
+  // The ES6 \u{...} form is required here: \u consumes exactly four hex
+  // digits, so "\uf042a" would be U+F042 followed by a literal 'a'.
+  //
+  // U+F042A (nf-md-printer) is the glyph the design spec specifies. c5f83a1
+  // switched to U+F02F (nf-fa-print) on live-use feedback; this switches back
+  // because F02F reads optically off-centre under the bar's open-panel mark,
+  // which Bar.qml centres on the slot and gives no way to shift.
+  readonly property string barIcon: "\u{F042A}"
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
