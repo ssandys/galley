@@ -25,7 +25,21 @@ def run_cli(env_extra=None):
 
 class FixtureReplayTest(unittest.TestCase):
     def test_replays_a_fixture_directory_without_calling_ipptool(self):
-        proc, snapshot = run_cli({"GALLEY_FIXTURE": os.path.join(FIXTURES, "busy")})
+        # PATH is emptied so the "without calling ipptool" half of the name is
+        # actually enforced: any attempt to shell out fails loudly instead of
+        # quietly succeeding on a machine that happens to have a real ipptool
+        # and a live cupsd. Without this the test asserted only on the parsed
+        # snapshot, so a regression that ignored GALLEY_FIXTURE could pass
+        # whenever the real output happened to match the fixture.
+        #
+        # Emptying PATH is safe here specifically: collect() also calls
+        # `systemctl is-active`, but only when fixture_path() is falsy, so the
+        # fixture short-circuit runs before anything needs a binary. If that
+        # ordering ever changes this test catches it, which is the point.
+        proc, snapshot = run_cli({
+            "GALLEY_FIXTURE": os.path.join(FIXTURES, "busy"),
+            "PATH": "",
+        })
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(snapshot["cupsd"], "running")
         self.assertEqual(len(snapshot["printers"]), 2)
