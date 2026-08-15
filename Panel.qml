@@ -345,15 +345,29 @@ Panel {
                   }
 
                   Button {
+                    // Same rule as the per-job cancel below: cupsd runs with
+                    // _user_cancel_any=0, so `cancel -a` clears only your own
+                    // jobs. Ungated, this offered to empty a shared queue and
+                    // then reported the rest as stderr. The card knows only
+                    // queuedJobCount, so ownership comes from the snapshot.
+                    readonly property bool mineHere:
+                      Model.hasCancellableJobs(controller.snapshot.jobs,
+                                               modelData.name)
                     visible: modelData.queuedJobCount > 0
                     text: "cancel all"
-                    foreground: Model.COLOR_ERROR
-                    tooltipText: "Cancel every job you own on this queue"
+                    foreground: mineHere ? Model.COLOR_ERROR : root.dim
+                    // Two distinct reasons to be disabled, and they are not the
+                    // same problem: nothing queued, versus a queue that is all
+                    // someone else's.
+                    tooltipText: mineHere
+                      ? "Cancel every job you own on this queue"
+                      : "No jobs of yours on this queue — you cannot cancel "
+                        + "another user's"
                     fontFamily: root.fontFamily
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: controller.actionInProgress === ""
+                    enabled: mineHere && controller.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: controller.runAction("cancel-all", modelData.name)
                   }

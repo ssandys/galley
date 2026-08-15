@@ -15,17 +15,21 @@ closed — see the git log for which commit closed which.
 
 | # | Item |
 |---|---|
-| [6](https://github.com/ssandys/galley/issues/6) | `Panel.qml` inlines the `COLOR_*` hex values instead of consuming the palette; `COLOR_OK` is dead *because* of it |
-| [8](https://github.com/ssandys/galley/issues/8) | `cancel all` is not owner-gated while the per-job cancel is |
-| [18](https://github.com/ssandys/galley/issues/18) | `README.md`'s `omarchy bar move` step restates `barWidget.defaultSection` |
 | [19](https://github.com/ssandys/galley/issues/19) | Bar open-panel indicator reads a few px off-centre under the glyph — likely upstream in `Bar.qml`, which centres the mark on the slot and offers no way to shift it |
 
-Closed: #1 (`Controller.qml` extracted), #2 (`printerGlyph` deleted), #3 (inert
-`dataVersion` guards), #4 (fixture-replay now enforces its own name), #5 (empty
-user is never `mine`), #7 (the executing guard *is* the answer — no change),
-#9 (`other`-typed markers warn, now enforced in both languages), #10 and #11
-(the retained-state bugs), #12 (`loading` deleted), #15 (`bin/dev`), #16
-(`bin/test` ran only one suite), #17 (identity rewrite covered only `*.qml`).
+Closed, in order: #1 (`Controller.qml` extracted out of `Panel.qml`), #2
+(`printerGlyph` deleted), #3 (inert `dataVersion` guards), #4 (the
+fixture-replay test now enforces its own name), #5 (an empty user is never
+`mine`), #6 (`Panel.qml` consumes the palette; no hex literals remain), #7 (the
+executing guard *is* the permanent answer — no code change), #8 (`cancel all` is
+owner-gated like the per-job cancel), #9 (`other`-typed markers do warn, now
+enforced in both languages), #10 and #11 (the retained-state bugs), #12
+(`loading` deleted), #15 (`bin/dev` replaced `bin/install`), #16 (`bin/test` ran
+only one suite), #17 (the identity rewrite covered only `*.qml`), #18 (two false
+README claims).
+
+Still open but tracked elsewhere in this file: #13 and #14, under "Not built,
+deliberately".
 
 ## Done
 

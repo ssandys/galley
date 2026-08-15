@@ -152,6 +152,24 @@ function filterJobs(jobs, selectedPrinter) {
   return result
 }
 
+function hasCancellableJobs(jobs, printerName) {
+  // Whether `cancel -a <printer>` would actually cancel anything. cupsd runs
+  // with _user_cancel_any=0, so it silently cancels only the caller's own jobs
+  // -- on a shared queue a "cancel all" button would appear to clear the queue,
+  // cancel a subset, and surface the rest as stderr in the error strip.
+  //
+  // Deliberately not filterJobs(): that treats an empty selection as "no
+  // filter" and returns every job, which is correct for the queue view and
+  // wrong here, where an unnamed printer would inherit another printer's
+  // ownership. A card without a name has nothing cancellable.
+  if (!printerName) return false
+  var list = jobs || []
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].printer === printerName && list[i].mine) return true
+  }
+  return false
+}
+
 function barSeverity(snapshot) {
   if (!snapshot) return "normal"
   if (snapshot.cupsd === "error") return "error"
@@ -355,6 +373,7 @@ if (typeof module !== "undefined") {
     supplyLabel: supplyLabel,
     supplyColor: supplyColor,
     filterJobs: filterJobs,
+    hasCancellableJobs: hasCancellableJobs,
     barSeverity: barSeverity,
     badgeText: badgeText,
     tooltipText: tooltipText,

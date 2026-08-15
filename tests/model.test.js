@@ -103,6 +103,43 @@ test("filterJobs on an unknown printer returns nothing", () => {
   assert.equal(Model.filterJobs(SNAPSHOT.jobs, "Nope").length, 0)
 })
 
+test("hasCancellableJobs is true when a job on that printer is mine", () => {
+  // Both SNAPSHOT jobs are mine: 53 on Canon@OLP, 55 on Brother@Home.
+  assert.equal(Model.hasCancellableJobs(SNAPSHOT.jobs, "Canon@OLP"), true)
+  assert.equal(Model.hasCancellableJobs(SNAPSHOT.jobs, "Brother@Home"), true)
+})
+
+test("hasCancellableJobs is false when every job on that printer is someone else's", () => {
+  // The whole point of the gate: cupsd runs with _user_cancel_any=0, so
+  // `cancel -a` silently cancels only your own jobs. A queue full of other
+  // people's work must not offer a button that appears to clear it.
+  const foreign = SNAPSHOT.jobs.map(job => ({ ...job, mine: false }))
+  assert.equal(Model.hasCancellableJobs(foreign, "Canon@OLP"), false)
+})
+
+test("hasCancellableJobs sees only the named printer's jobs", () => {
+  // A job I own on ANOTHER printer must not enable this printer's button.
+  const mixed = [
+    { id: 1, printer: "Canon@OLP", mine: false },
+    { id: 2, printer: "Brother@Home", mine: true }
+  ]
+  assert.equal(Model.hasCancellableJobs(mixed, "Canon@OLP"), false)
+  assert.equal(Model.hasCancellableJobs(mixed, "Brother@Home"), true)
+})
+
+test("hasCancellableJobs survives an empty or absent queue", () => {
+  assert.equal(Model.hasCancellableJobs([], "Canon@OLP"), false)
+  assert.equal(Model.hasCancellableJobs(null, "Canon@OLP"), false)
+  assert.equal(Model.hasCancellableJobs(undefined, "Canon@OLP"), false)
+})
+
+test("hasCancellableJobs requires a printer name rather than matching everything", () => {
+  // filterJobs treats an empty selection as "no filter" and returns every job,
+  // which is right for the queue view and wrong here: an unnamed printer must
+  // not inherit another printer's ownership.
+  assert.equal(Model.hasCancellableJobs(SNAPSHOT.jobs, ""), false)
+})
+
 test("barSeverity is normal when all is well", () => {
   // Job 55 is held, which is itself a warn condition. Keep only the
   // processing job so this exercises "actively printing, nothing wrong"
