@@ -239,6 +239,17 @@ var tonerNext = {cupsd: "running", jobs: [], printers: [
   {name: "P1", supplies: [{name: "Black", type: "toner", level: 1}]}]};
 out.tonerEvents = Model.diffSnapshots(tonerPrev, tonerNext, opts).length;
 
+// "other" is deliberately NOT excluded (galley#9). A Belt Unit arrives as
+// marker-type "other" and, unlike waste-toner, still follows the normal
+// percent-remaining convention -- so it must colour and notify like a toner.
+out.otherColor = Model.supplyColor(
+  {name: "Belt Unit", type: "other", level: 1}, 15, "FALLBACK");
+var otherPrev = {cupsd: "running", jobs: [], printers: [
+  {name: "P1", supplies: [{name: "Belt Unit", type: "other", level: 50}]}]};
+var otherNext = {cupsd: "running", jobs: [], printers: [
+  {name: "P1", supplies: [{name: "Belt Unit", type: "other", level: 1}]}]};
+out.otherEvents = Model.diffSnapshots(otherPrev, otherNext, opts).length;
+
 process.stdout.write(JSON.stringify(out));
 """ % json.dumps(MODEL_JS_PATH)
 
@@ -276,6 +287,22 @@ class WasteTonerExclusionTest(unittest.TestCase):
             gn.low_supplies(printer, threshold=50), [],
             "low_supplies no longer excludes waste-toner: a marker at 1%% "
             "with a threshold of 50 was reported as low",
+        )
+
+    def test_python_low_supplies_includes_an_other_typed_marker(self):
+        # The control for the test above, and the executable form of galley#9's
+        # decision: only waste-toner is excluded, on the grounds that IPP leaves
+        # its polarity undefined. "other" is vague but still percent-remaining
+        # on this hardware, so a Belt Unit at 1%% must be reported low. Without
+        # this, excluding "other" as "too vague to alert on" would pass the
+        # waste-toner test and silently change behaviour.
+        printer = {"supplies": [
+            {"name": "Belt Unit", "type": "other", "level": 1},
+        ]}
+        self.assertEqual(
+            len(gn.low_supplies(printer, threshold=50)), 1,
+            "an \"other\"-typed marker at 1%% was not reported low -- galley#9 "
+            "confirmed that only waste-toner is excluded",
         )
 
     @unittest.skipUnless(
@@ -323,6 +350,23 @@ class WasteTonerExclusionTest(unittest.TestCase):
         )
 
 
+
+        # galley#9, executable: "other" is deliberately not excluded. A Belt
+        # Unit arrives as marker-type "other" and still follows
+        # percent-remaining, so it must colour and notify like a toner. Deciding
+        # later that "other" is too vague to alert on would pass every
+        # assertion above while silently changing behaviour -- these two are
+        # what make that a visible change rather than an invisible one.
+        self.assertNotEqual(
+            out["otherColor"], "FALLBACK",
+            'supplyColor did not colour an "other"-typed marker at 1%%; '
+            "galley#9 confirmed only waste-toner is excluded",
+        )
+        self.assertEqual(
+            out["otherEvents"], 1,
+            'diffSnapshots raised %r supply-low events for an "other"-typed '
+            "marker crossing the threshold, expected 1" % (out["otherEvents"],),
+        )
 class ColorPaletteTest(unittest.TestCase):
     """Every hex color literal in Panel.qml must be one of Model.js's
     COLOR_* constants, so the two cannot silently drift apart.

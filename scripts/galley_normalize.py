@@ -174,6 +174,12 @@ def low_supplies(printer, threshold):
 
     waste-toner is excluded: IPP does not define whether its level means
     percent full or percent remaining, and vendors disagree.
+
+    `other` is deliberately NOT excluded. This machine's Brother reports its
+    Belt Unit as marker-type "other", and unlike waste-toner an "other" marker
+    still follows the normal percent-remaining convention here -- a belt at 12%
+    genuinely is a consumable running out, so it should warn like any other. The
+    exclusion list is about undefined polarity, not about vague type names.
     """
     return [s for s in printer.get("supplies", [])
             if s.get("type") != "waste-toner" and s.get("level", 100) < threshold]

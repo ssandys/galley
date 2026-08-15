@@ -10,18 +10,22 @@ Severity reflects that this is a personal-use widget on a single-user desktop.
 
 ## Tracked as issues
 
+Only what is still open. Everything this file used to list under here has been
+closed — see the git log for which commit closed which.
+
 | # | Item |
 |---|---|
-| [1](https://github.com/ssandys/galley/issues/1) | Extract a non-visual `Controller.qml` from `Panel.qml` — 245 lines of state machine buried under 530 of layout |
-| [2](https://github.com/ssandys/galley/issues/2) | `printerGlyph()` is exported, never called, and returns the pre-`c5f83a1` glyph — wire it up or delete it |
-| [3](https://github.com/ssandys/galley/issues/3) | `root.dataVersion >= 0` is inert at two sites and reads as load-bearing |
-| [4](https://github.com/ssandys/galley/issues/4) | The fixture-replay test never asserts `ipptool` was not called |
-| [5](https://github.com/ssandys/galley/issues/5) | No test for `mine == False` when both the job's user and the current user are empty — that gate enables a destructive button |
 | [6](https://github.com/ssandys/galley/issues/6) | `Panel.qml` inlines the `COLOR_*` hex values instead of consuming the palette; `COLOR_OK` is dead *because* of it |
-| [7](https://github.com/ssandys/galley/issues/7) | The threshold default `15` is declared seven times — guarded, but decide whether the guard is the permanent answer |
 | [8](https://github.com/ssandys/galley/issues/8) | `cancel all` is not owner-gated while the per-job cancel is |
-| [9](https://github.com/ssandys/galley/issues/9) | A `Belt Unit` reports `type: "other"`, so a belt at 12% raises a supply-low notification |
-| [12](https://github.com/ssandys/galley/issues/12) | `loading` has three writes and zero reads |
+| [18](https://github.com/ssandys/galley/issues/18) | `README.md`'s `omarchy bar move` step restates `barWidget.defaultSection` |
+| [19](https://github.com/ssandys/galley/issues/19) | Bar open-panel indicator reads a few px off-centre under the glyph — likely upstream in `Bar.qml`, which centres the mark on the slot and offers no way to shift it |
+
+Closed: #1 (`Controller.qml` extracted), #2 (`printerGlyph` deleted), #3 (inert
+`dataVersion` guards), #4 (fixture-replay now enforces its own name), #5 (empty
+user is never `mine`), #7 (the executing guard *is* the answer — no change),
+#9 (`other`-typed markers warn, now enforced in both languages), #10 and #11
+(the retained-state bugs), #12 (`loading` deleted), #15 (`bin/dev`), #16
+(`bin/test` ran only one suite), #17 (identity rewrite covered only `*.qml`).
 
 ## Done
 
