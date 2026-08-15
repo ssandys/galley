@@ -48,12 +48,15 @@ Limitations.
 omarchy plugin add https://github.com/ssandys/galley.git --enable
 ```
 
-That clones the plugin into `~/.config/omarchy/plugins/ssandys.galley/` and
-enables it. Then put it where you want it on the bar, either through the
-shell's settings panel or from the command line:
+That clones the plugin into `~/.config/omarchy/plugins/ssandys.galley/`,
+enables it, and puts it in the bar's **right** section — `manifest.json`
+declares that as `barWidget.defaultSection`, and the shell honours it, so
+there is nothing else to run.
+
+To put it somewhere else, use the shell's settings panel or the command line:
 
 ```bash
-omarchy bar move ssandys.galley --section right
+omarchy bar move ssandys.galley --section center
 ```
 
 To pick up later changes:
@@ -103,7 +106,7 @@ directly in `shell.json`. Defaults and ranges below come straight from
 | `pollIntervalOpenSec` | integer (1–30) | `3` | How often (seconds) Galley polls CUPS while the panel is open. Also used while the panel is **closed** if a job is currently active, so the badge count stays current without waiting for the slow interval. |
 | `pollIntervalIdleSec` | integer (5–300) | `30` | How often (seconds) it polls while the panel is closed **and** nothing is active. Has no effect whenever the panel is open or a job is active — see `pollIntervalOpenSec`. |
 | `showSupplies` | boolean | `true` | Show ink/toner/drum levels on each printer card. |
-| `supplyLowThreshold` | integer (5–50) | `15` | Percent level below which a supply counts as low — drives the amber bar color, the card's supply-low count, and the supply-low notification. |
+| `supplyLowThreshold` | integer (5–50) | `15` | Percent level below which a supply counts as low — drives the supply level colors on each card, the amber bar color, and the supply-low notification. |
 | `notifyJobFailed` | boolean | `true` | Desktop notification when a job stops or aborts. |
 | `notifyPrinterError` | boolean | `true` | Desktop notification when a printer stops or picks up an error reason. |
 | `notifyJobCompleted` | boolean | `true` | Desktop notification when a job finishes printing. |

@@ -74,7 +74,7 @@ behaviour. If you add a sixth crossing, execute it.
 
 ## Documentation drift
 
-Not filed as issues — three small edits, one PR's worth of work.
+Not filed as issues — two small edits, one PR's worth of work.
 
 - The spec says a failed action shows an "inline error on the card"; the code
   shows one shared strip at the panel bottom. Reasonable simplification,
@@ -84,8 +84,6 @@ Not filed as issues — three small edits, one PR's worth of work.
   is covered by the separate printer-error event, so behaviour is right but the
   spec row is wrong — and leaving it invites someone to "fix" the code into
   firing two notifications for one event.
-- `README.md` says `supplyLowThreshold` drives "the card's supply-low count" —
-  no such count is rendered; it reaches the UI only as the amber bar colour.
 
 ## Fine as is
 
