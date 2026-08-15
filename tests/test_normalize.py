@@ -29,6 +29,49 @@ class ParsePlistTest(unittest.TestCase):
         self.assertEqual(len(data["Tests"]), 1)
 
 
+class NoDestinationsTest(unittest.TestCase):
+    def test_empty_cups_is_a_benign_no_destinations(self):
+        # cupsd returns this exact shape for CUPS-Get-Printers when no
+        # printers are configured -- a healthy empty state, not a fault.
+        result = {
+            "Successful": False,
+            "StatusCode": "client-error-not-found",
+            "ResponseAttributes": [
+                {"attributes-charset": "utf-8",
+                 "attributes-natural-language": "en",
+                 "status-message": "No destinations added."},
+            ],
+        }
+        self.assertTrue(gn.no_destinations(result))
+
+    def test_success_is_never_no_destinations(self):
+        result = {"Successful": True, "StatusCode": "successful-ok"}
+        self.assertFalse(gn.no_destinations(result))
+
+    def test_other_failures_stay_errors(self):
+        result = {
+            "Successful": False,
+            "StatusCode": "server-error-service-unavailable",
+            "ResponseAttributes": [
+                {"attributes-charset": "utf-8",
+                 "status-message": "Service unavailable."},
+            ],
+        }
+        self.assertFalse(gn.no_destinations(result))
+
+    def test_not_found_without_status_message_is_not_benign(self):
+        result = {
+            "Successful": False,
+            "StatusCode": "client-error-not-found",
+            "ResponseAttributes": [{"attributes-charset": "utf-8"}],
+        }
+        self.assertFalse(gn.no_destinations(result))
+
+    def test_missing_response_attributes_is_not_benign(self):
+        result = {"Successful": False, "StatusCode": "client-error-not-found"}
+        self.assertFalse(gn.no_destinations(result))
+
+
 class AsListTest(unittest.TestCase):
     def test_wraps_scalar(self):
         # Single-valued IPP attributes arrive as scalars, not one-element lists.

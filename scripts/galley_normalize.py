@@ -39,6 +39,23 @@ def test_succeeded(test_result):
     return str(test_result.get("StatusCode", "")).startswith("successful")
 
 
+def no_destinations(test_result):
+    """Whether a failed request is cupsd's "no printers configured" reply.
+
+    With zero printers, cupsd answers CUPS-Get-Printers with
+    client-error-not-found and status-message "No destinations added." — a
+    healthy empty state, not a fault. Only that exact reply is benign;
+    any other failure stays an error.
+    """
+    if test_succeeded(test_result):
+        return False
+    if str(test_result.get("StatusCode", "")) != "client-error-not-found":
+        return False
+    attrs = test_result.get("ResponseAttributes") or []
+    message = attrs[0].get("status-message", "") if attrs else ""
+    return "No destinations" in str(message)
+
+
 def response_groups(test_result):
     """Attribute groups of one ipptool test, minus the operation group.
 
