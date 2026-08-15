@@ -162,6 +162,17 @@ class JobTest(unittest.TestCase):
         attrs = {"job-id": 7, "job-originating-user-name": "someone-else"}
         self.assertFalse(gn.normalize_job(attrs, "sean")["mine"])
 
+    def test_empty_user_is_never_mine(self):
+        # Both sides can genuinely be empty at once: cupsd omits
+        # job-originating-user-name when requesting-user-name is not sent
+        # (see galley_collect.py's IPP request), and current_user() falls back
+        # to an empty USER env var when getpass fails. Without the bool(user)
+        # guard in normalize_job those collapse to "" == "" -> True, which
+        # enables the per-job cancel button -- a destructive control -- on a
+        # job that may belong to anyone.
+        attrs = {"job-id": 7}
+        self.assertFalse(gn.normalize_job(attrs, "")["mine"])
+
     def test_redacted_job_name_falls_back(self):
         # Without requesting-user-name cupsd omits job-name entirely.
         attrs = {"job-id": 42}
