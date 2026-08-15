@@ -36,6 +36,25 @@ def read(relpath):
         return handle.read()
 
 
+def qml_sources():
+    """Every top-level QML file, as (name, source) pairs.
+
+    Globbed rather than naming Panel.qml, because the presentation layer is
+    not one file and has not been since Controller.qml was split out of it.
+    A guard that names the file it scrapes stops guarding the moment the
+    thing it looks for moves -- which is exactly what happened here: the
+    supplyLowThreshold scrape below was pinned to Panel.qml and went red when
+    settingValue() moved to Controller.qml. It failed loudly, which is the
+    design, but the fix is to stop listing files. Same lesson as bin/dev's
+    identity rewrite, for the same reason.
+    """
+    names = sorted(
+        name for name in os.listdir(ROOT) if name.endswith(".qml")
+    )
+    assert names, "no *.qml files found at the repo root -- the glob is broken"
+    return [(name, read(name)) for name in names]
+
+
 class CrossLanguageErrorReasonsTest(unittest.TestCase):
     """Model.js and galley_normalize.py must classify errors identically.
 
@@ -55,7 +74,7 @@ class CrossLanguageErrorReasonsTest(unittest.TestCase):
 
 
 class StateNameLiteralsTest(unittest.TestCase):
-    """Every state string Model.js/Panel.qml compare against must be one
+    """Every state string Model.js or any *.qml compares against must be one
     Python can actually emit.
 
     galley_normalize.py's PRINTER_STATES/JOB_STATES dicts are the vocabulary;
@@ -70,15 +89,28 @@ class StateNameLiteralsTest(unittest.TestCase):
         valid_states = set(gn.PRINTER_STATES.values()) | set(gn.JOB_STATES.values())
 
         literals = set()
-        for relpath in ("Model.js", "Panel.qml"):
-            source = read(relpath)
+        # Model.js always compares states; the QML files are scanned as a set,
+        # and only their union has to be non-empty -- Controller.qml holds the
+        # state machine while Panel.qml renders, so which file carries a given
+        # comparison is an implementation detail that may move again.
+        sources = [("Model.js", read("Model.js"))] + qml_sources()
+        qml_found_any = False
+        for name, source in sources:
             found = re.findall(r'state\s*===\s*"([^"]+)"', source)
-            self.assertTrue(
-                found,
-                "no `state === \"...\"` comparisons found in %s -- the "
-                "regex is broken, not passing" % relpath,
-            )
+            if name == "Model.js":
+                self.assertTrue(
+                    found,
+                    "no `state === \"...\"` comparisons found in Model.js -- "
+                    "the regex is broken, not passing",
+                )
+            elif found:
+                qml_found_any = True
             literals.update(found)
+        self.assertTrue(
+            qml_found_any,
+            "no `state === \"...\"` comparisons found in any *.qml file -- "
+            "the regex is broken, not passing",
+        )
 
         # Sanity floor: at the time this guard was written there were 5
         # distinct literals across both files (processing, held, aborted,
@@ -93,7 +125,8 @@ class StateNameLiteralsTest(unittest.TestCase):
         for literal in sorted(literals):
             self.assertIn(
                 literal, valid_states,
-                "%r is compared against in Model.js/Panel.qml but is not a "
+                "%r is compared against in Model.js or a *.qml file but is "
+                "not a "
                 "value galley_normalize.py's PRINTER_STATES/JOB_STATES can "
                 "ever emit" % literal,
             )
@@ -127,14 +160,18 @@ class SupplyLowThresholdDefaultTest(unittest.TestCase):
         )
         schema_default = schema_entry["defaultValue"]
 
-        qml_source = read("Panel.qml")
-        qml_match = re.search(
-            r'settingValue\("supplyLowThreshold",\s*(\d+)\)', qml_source
-        )
+        qml_match, qml_where = None, None
+        for name, source in qml_sources():
+            found = re.search(
+                r'settingValue\("supplyLowThreshold",\s*(\d+)\)', source
+            )
+            if found:
+                qml_match, qml_where = found, name
+                break
         self.assertIsNotNone(
             qml_match,
-            'settingValue("supplyLowThreshold", N) fallback not found in '
-            "Panel.qml",
+            'settingValue("supplyLowThreshold", N) fallback not found in any '
+            "*.qml file",
         )
         qml_default = int(qml_match.group(1))
 
@@ -310,20 +347,22 @@ class ColorPaletteTest(unittest.TestCase):
         )
         palette_values = set(palette.values())
 
-        qml_source = read("Panel.qml")
-        qml_colors = set(re.findall(r"#[0-9a-fA-F]{6}", qml_source))
+        qml_colors = {}
+        for name, source in qml_sources():
+            for color in re.findall(r"#[0-9a-fA-F]{6}", source):
+                qml_colors.setdefault(color, name)
         self.assertTrue(
             qml_colors,
-            "no hex color literals found in Panel.qml -- the regex is "
+            "no hex color literals found in any *.qml file -- the regex is "
             "broken, not passing",
         )
 
         for color in sorted(qml_colors):
             self.assertIn(
                 color, palette_values,
-                "%s appears in Panel.qml but is not one of Model.js's "
+                "%s appears in %s but is not one of Model.js's "
                 "COLOR_* constants (%r) -- the two palettes have diverged"
-                % (color, palette_values),
+                % (color, qml_colors[color], palette_values),
             )
 
 

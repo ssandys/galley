@@ -12,177 +12,32 @@ Panel {
   moduleName: "ssandys.galley"
   ipcTarget: "ssandys.galley"
 
-  property var snapshot: Model.EMPTY_SNAPSHOT
-  property int dataVersion: 0
-  property bool loading: false
-  property string selectedPrinter: ""
+  // Every mutable property, every Process and the poll Timer live in
+  // Controller.qml. This file renders and holds view state only: which
+  // printer the queue is filtered to, and the theme-derived colors below.
+  Controller {
+    id: controller
+    settings: root.settings
+    panelOpen: root.opened
+    collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py"))
+    actionPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_action.sh"))
+  }
 
-  // Status is reported separately from content. `snapshot` above is the
-  // last-known-good content (printer cards, queue rows, counts) and is only
-  // ever replaced by a "running" collector response — see handleOutput().
-  // `cupsdState`/`collectorError` mirror the most recent response verbatim,
-  // good or bad, so status-only surfaces (bar glyph color, tooltip, the
-  // empty states) always reflect what just happened even while the content
-  // underneath is stale.
-  property string cupsdState: "running"
-  property string collectorError: ""
+  // View state: the queue filter is a property of what you are looking at,
+  // not of the collector, so it stays here.
+  property string selectedPrinter: ""
 
   readonly property string barIcon: "\uf02f"
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
 
-  function settingValue(key, fallback) {
-    var value = settings ? settings[key] : undefined
-    return (value === undefined || value === null) ? fallback : value
-  }
-
-  readonly property int supplyThreshold: settingValue("supplyLowThreshold", 15)
-  readonly property bool showSupplies: settingValue("showSupplies", true) === true
-
-  property bool pendingRefresh: false
-
-  property var previousSnapshot: null
-  property var armedSupplies: ({})
-  property bool jobWasActive: false
-
-  // The armed set records no threshold of its own, and Model.supplyRearmed()
-  // is relative to the current one -- so after a change, an entry armed under
-  // the old threshold can sit above the new arm line and below the new re-arm
-  // line at once. Stranded there it clears on neither condition, and it
-  // suppresses the very notification a lowered threshold was set to raise.
-  // Redefining "low" re-opens the question for every supply, so drop the
-  // whole set and let the next poll arm it afresh.
-  onSupplyThresholdChanged: root.armedSupplies = ({})
-
-  readonly property int openInterval: settingValue("pollIntervalOpenSec", 3)
-  readonly property int idleInterval: settingValue("pollIntervalIdleSec", 30)
-
-  function notifyOptions() {
-    return {
-      threshold: root.supplyThreshold,
-      notifyJobFailed: settingValue("notifyJobFailed", true) === true,
-      notifyPrinterError: settingValue("notifyPrinterError", true) === true,
-      notifyJobCompleted: settingValue("notifyJobCompleted", true) === true,
-      notifySupplyLow: settingValue("notifySupplyLow", true) === true,
-      completedIds: root.snapshot.completedIds || [],
-      armedSupplies: root.armedSupplies
-    }
-  }
-
-  property var notifyQueue: []
-
-  function dispatchNotifications() {
-    // One options object for both calls below. The arming condition and the
-    // notify condition have to read the same settings within a tick: read
-    // separately, a toggle flipped between them could suppress the event and
-    // arm the supply in the same pass, losing it until a refill.
-    var opts = notifyOptions()
-    var events = Model.diffSnapshots(
-      root.previousSnapshot, root.snapshot, opts)
-    if (events.length > 0) {
-      var queued = root.notifyQueue.slice()
-      for (var i = 0; i < events.length; i++) queued.push(events[i])
-      root.notifyQueue = queued
-      sendNextNotification()
-    }
-    root.armedSupplies = Model.nextArmedSupplies(
-      root.armedSupplies, root.snapshot, opts.threshold, opts.notifySupplyLow)
-  }
-
-  function sendNextNotification() {
-    // One notify-send at a time. Quickshell ignores a command assignment
-    // while a Process is running, so firing these in a loop would silently
-    // drop everything except the first and the last.
-    if (notifyProc.running) return
-    if (root.notifyQueue.length === 0) return
-
-    var next = root.notifyQueue[0]
-    root.notifyQueue = root.notifyQueue.slice(1)
-    notifyProc.command = ["notify-send", "-a", "Galley",
-      "-u", next.urgency, "--", next.title, next.message]
-    notifyProc.running = true
-  }
-
-  Process {
-    id: notifyProc
-    onRunningChanged: {
-      if (notifyProc.running) return
-      Qt.callLater(root.sendNextNotification)
-    }
-  }
-
-  Timer {
-    id: pollTimer
-    running: true
-    repeat: true
-    interval: {
-      if (root.opened) return root.openInterval * 1000
-      var active = root.snapshot.summary
-        ? root.snapshot.summary.activeJobs : 0
-      return active > 0 ? root.openInterval * 1000 : root.idleInterval * 1000
-    }
-    onTriggered: root.refresh(true)
-  }
-
+  // Qt.resolvedUrl() resolves against the file it is called from, so the
+  // script paths are resolved here and injected into the controller above.
   function pathFromUrl(url) {
     var value = String(url || "")
     if (value.indexOf("file://") === 0) return decodeURIComponent(value.substring(7))
     return value
-  }
-
-  function refresh(fromTimer) {
-    // A user-initiated refresh arriving mid-flight is coalesced rather than
-    // dropped; the in-flight run re-triggers it on completion. A timer tick
-    // is not coalesced: re-firing it immediately would decouple the poll
-    // cadence from the configured interval whenever the collector runs
-    // slower than it (degrading to back-to-back polling).
-    if (collectProc.running) {
-      if (fromTimer !== true) pendingRefresh = true
-      return
-    }
-    pendingRefresh = false
-    loading = true
-    var args = ["python3",
-      pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py")),
-      "--threshold", String(root.supplyThreshold)]
-    if (root.jobWasActive) args.push("--completed")
-    collectProc.command = args
-    collectProc.running = true
-  }
-
-  function statusSnapshot() {
-    // Merge the authoritative status fields onto the retained content, for
-    // the handful of call sites (bar glyph color, tooltip) that must react
-    // to the live cupsd/collector state rather than the last-known-good
-    // snapshot's own (possibly stale) `cupsd`/`error` fields. Content
-    // fields (summary, jobs, printers) still come from root.snapshot, so a
-    // retained error printer or low supply keeps coloring the glyph while
-    // cupsd is merely asleep or the collector is erroring.
-    var merged = {}
-    for (var key in root.snapshot) merged[key] = root.snapshot[key]
-    merged.cupsd = root.cupsdState
-    merged.error = root.collectorError
-    return merged
-  }
-
-  function handleOutput(raw) {
-    var next = Model.parseSnapshot(raw)
-    root.cupsdState = next.cupsd
-    root.collectorError = next.error || ""
-    root.loading = false
-    // A collector error or an asleep cupsd must not destroy good content:
-    // only a "running" response replaces the retained snapshot. This is
-    // also why dispatchNotifications() lives inside this branch — calling
-    // it against an unchanged (prev, snapshot) pair on every erroring poll
-    // would replay the same diff and re-fire the same notifications.
-    if (next.cupsd === "running") {
-      root.previousSnapshot = root.dataVersion > 0 ? root.snapshot : null
-      root.snapshot = next
-      root.dataVersion++
-      root.jobWasActive = (next.summary ? next.summary.activeJobs : 0) > 0
-      root.dispatchNotifications()
-    }
   }
 
   function selectPrinter(name) {
@@ -190,76 +45,20 @@ Panel {
   }
 
   function visibleJobs() {
-    return Model.filterJobs(root.snapshot.jobs, root.selectedPrinter)
-  }
-
-  property string actionInProgress: ""
-  property string actionError: ""
-  property bool actionExited: false
-
-  function runAction(verb, target) {
-    if (actionInProgress !== "") return
-    actionInProgress = verb + ":" + target
-    actionError = ""
-    actionExited = false
-    actionProc.command = ["bash",
-      pathFromUrl(Qt.resolvedUrl("scripts/galley_action.sh")), verb, target]
-    actionProc.running = true
-  }
-
-  Process {
-    id: actionProc
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { if (text) root.actionError = text }
-    }
-    onExited: function (code, status) {
-      root.actionExited = true
-      if (code !== 0 && root.actionError === "")
-        root.actionError = "Action failed with exit code " + code
-    }
-    onRunningChanged: {
-      if (actionProc.running) return
-      // Quickshell emits neither exited() nor streamEnded() when a process
-      // fails to spawn, so onExited alone would leave actionInProgress set
-      // forever and disable every button in the panel. Same failure mode the
-      // collectProc handler above guards against.
-      if (!root.actionExited && root.actionInProgress !== "")
-        root.actionError = "Could not run the action helper"
-      root.actionInProgress = ""
-      Qt.callLater(root.refresh)
-    }
+    return Model.filterJobs(controller.snapshot.jobs, root.selectedPrinter)
   }
 
   onOpenedChanged: {
     if (opened) {
-      actionError = ""
-      refresh()
+      controller.actionError = ""
+      controller.refresh()
     } else {
       selectedPrinter = ""
     }
   }
 
-  Component.onCompleted: refresh()
-
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
-
-  Process {
-    id: collectProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.handleOutput(text)
-    }
-    onRunningChanged: {
-      if (collectProc.running) return
-      // Quickshell does not call streamEnded() when a process fails to
-      // spawn, so handleOutput never runs. Clearing here as well is what
-      // keeps `loading` from sticking true forever.
-      root.loading = false
-      if (root.pendingRefresh) Qt.callLater(root.refresh)
-    }
-  }
 
   WidgetButton {
     id: button
@@ -268,7 +67,7 @@ Panel {
     // The count is no longer inline — it renders as the badge child below.
     text: root.barIcon
     foreground: {
-      var severity = Model.barSeverity(root.statusSnapshot())
+      var severity = Model.barSeverity(controller.statusSnapshot())
       if (severity === "error") return "#ef4444"
       if (severity === "warn") return "#eab308"
       // Bar chrome convention (WidgetButton's own default, base Ui/Panel,
@@ -279,9 +78,9 @@ Panel {
     }
     fixedWidth: root.bar && root.bar.vertical ? -1 : Style.space(27)
     fixedHeight: root.bar && root.bar.vertical ? Style.space(26) : -1
-    tooltipText: Model.tooltipText(root.statusSnapshot())
+    tooltipText: Model.tooltipText(controller.statusSnapshot())
     onPressed: function (which) {
-      if (which === Qt.MiddleButton) { root.refresh(); return }
+      if (which === Qt.MiddleButton) { controller.refresh(); return }
       if (root.opened) root.close()
       // No explicit refresh here: onOpenedChanged covers it, and also covers
       // opens triggered via IPC or a keybind, which never reach onPressed.
@@ -320,7 +119,7 @@ Panel {
       Text {
         id: badgeLabel
         anchors.centerIn: parent
-        text: Model.badgeText(root.statusSnapshot())
+        text: Model.badgeText(controller.statusSnapshot())
         color: Color.background
         font.family: root.fontFamily
         font.bold: true
@@ -353,8 +152,8 @@ Panel {
       }
       onTextKey: function (t) {
         if (t === "r" || t === "R") {
-          root.actionError = ""
-          root.refresh()
+          controller.actionError = ""
+          controller.refresh()
         }
       }
 
@@ -380,7 +179,7 @@ Panel {
 
           Text {
             text: {
-              var s = root.snapshot.summary
+              var s = controller.snapshot.summary
               if (!s) return ""
               return s.printers + " printers · " + s.activeJobs + " jobs"
             }
@@ -397,7 +196,7 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.spacing.controlPaddingX
             verticalPadding: Style.spacing.controlPaddingY
-            onClicked: root.refresh()
+            onClicked: controller.refresh()
           }
         }
 
@@ -409,7 +208,7 @@ Panel {
           spacing: Style.space(6)
 
           Repeater {
-            model: root.dataVersion >= 0 ? (root.snapshot.printers || []) : []
+            model: controller.dataVersion >= 0 ? (controller.snapshot.printers || []) : []
 
             delegate: BorderSurface {
               required property var modelData
@@ -492,11 +291,11 @@ Panel {
                   spacing: Style.space(8)
 
                   Repeater {
-                    model: root.showSupplies ? (modelData.supplies || []) : []
+                    model: controller.showSupplies ? (modelData.supplies || []) : []
                     delegate: Text {
                       required property var modelData
                       text: Model.supplyLabel(modelData)
-                      color: Model.supplyColor(modelData, root.supplyThreshold, root.dim)
+                      color: Model.supplyColor(modelData, controller.supplyThreshold, root.dim)
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
                     }
@@ -529,9 +328,9 @@ Panel {
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: root.actionInProgress === ""
+                    enabled: controller.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
-                    onClicked: root.runAction(
+                    onClicked: controller.runAction(
                       modelData.state === "stopped" ? "resume" : "pause",
                       modelData.name)
                   }
@@ -545,9 +344,9 @@ Panel {
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: root.actionInProgress === ""
+                    enabled: controller.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
-                    onClicked: root.runAction("cancel-all", modelData.name)
+                    onClicked: controller.runAction("cancel-all", modelData.name)
                   }
 
                   Item { Layout.fillWidth: true }
@@ -597,7 +396,7 @@ Panel {
         // require printers.length === 0 except "No active jobs", which
         // carries no cupsdState requirement of its own.
         Text {
-          visible: root.cupsdState === "asleep" && (root.snapshot.printers || []).length > 0
+          visible: controller.cupsdState === "asleep" && (controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
           text: "CUPS idle — showing last known state"
           color: root.dim
@@ -607,9 +406,9 @@ Panel {
         }
 
         Text {
-          visible: root.cupsdState === "error" && (root.snapshot.printers || []).length > 0
+          visible: controller.cupsdState === "error" && (controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
-          text: "Showing last known data — " + (root.collectorError || "collector error")
+          text: "Showing last known data — " + (controller.collectorError || "collector error")
           color: "#ef4444"
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -624,7 +423,7 @@ Panel {
         // only one that can be visible when printers are present, so at most
         // one of the four is ever visible together.
         Text {
-          visible: root.cupsdState === "asleep" && (root.snapshot.printers || []).length === 0
+          visible: controller.cupsdState === "asleep" && (controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "CUPS idle — nothing queued"
           color: root.dim
@@ -634,9 +433,9 @@ Panel {
         }
 
         Text {
-          visible: root.cupsdState === "error" && (root.snapshot.printers || []).length === 0
+          visible: controller.cupsdState === "error" && (controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
-          text: root.collectorError || "Collector failed"
+          text: controller.collectorError || "Collector failed"
           color: "#ef4444"
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -645,7 +444,7 @@ Panel {
         }
 
         Text {
-          visible: (root.snapshot.printers || []).length > 0
+          visible: (controller.snapshot.printers || []).length > 0
                    && root.visibleJobs().length === 0
           Layout.fillWidth: true
           text: "No active jobs"
@@ -656,7 +455,7 @@ Panel {
         }
 
         Text {
-          visible: root.cupsdState === "running" && (root.snapshot.printers || []).length === 0
+          visible: controller.cupsdState === "running" && (controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "No printers configured"
           color: root.dim
@@ -681,7 +480,7 @@ Panel {
             spacing: Style.space(2)
 
             Repeater {
-              model: root.dataVersion >= 0 ? root.visibleJobs() : []
+              model: controller.dataVersion >= 0 ? root.visibleJobs() : []
 
               delegate: RowLayout {
                 required property var modelData
@@ -734,7 +533,7 @@ Panel {
                   text: "✕"
                   foreground: modelData.mine ? "#ef4444" : root.dim
                   // _user_cancel_any is 0, so only the owner may cancel.
-                  enabled: modelData.mine && root.actionInProgress === ""
+                  enabled: modelData.mine && controller.actionInProgress === ""
                   opacity: enabled ? 1.0 : 0.4
                   tooltipText: modelData.mine
                     ? "Cancel this job"
@@ -743,7 +542,7 @@ Panel {
                   fontSize: Style.font.caption
                   horizontalPadding: Style.space(6)
                   verticalPadding: Style.space(2)
-                  onClicked: root.runAction("cancel-job", String(modelData.id))
+                  onClicked: controller.runAction("cancel-job", String(modelData.id))
                 }
               }
             }
@@ -751,9 +550,9 @@ Panel {
         }
 
         Text {
-          visible: root.actionError !== ""
+          visible: controller.actionError !== ""
           Layout.fillWidth: true
-          text: root.actionError
+          text: controller.actionError
           color: "#ef4444"
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
