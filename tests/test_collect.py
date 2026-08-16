@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,11 +13,6 @@ import galley_collect as gc
 
 FIXTURES = os.path.join(HERE, "fixtures")
 COLLECTOR = os.path.join(HERE, "..", "scripts", "galley_collect.py")
-
-
-def read_source(path):
-    with open(path) as handle:
-        return handle.read()
 
 
 def run_cli(env_extra=None):
@@ -275,22 +271,36 @@ class ClientDefaultTest(unittest.TestCase):
         self.assertEqual(system, "/etc/cups/lpoptions")
 
     def test_fixture_replay_never_reads_the_live_lpoptions(self):
-        # The chain must be SKIPPED in fixture mode, not merely ordered after
-        # the fixture's own default file. Both fixtures ship one, so ordering
-        # alone would pass today and break the moment a fixture omitted it --
-        # at which point replay would read the developer's real default and
-        # these tests would differ per machine. Same class of defect as #4.
-        source = read_source(COLLECTOR)
-        body = source[source.index("def collect("):]
-        self.assertIn("directory", body)
-        marker = "default_from_lpoptions"
-        self.assertIn(
-            marker, body,
-            "collect() never consults the lpoptions chain")
-        call_line = next(line for line in body.splitlines() if marker in line)
-        self.assertIn(
-            "not directory", call_line,
-            "the lpoptions chain is not gated on fixture mode: %r" % call_line)
+        # Behavioural, not a source scrape. The gate only reveals itself when a
+        # fixture has NO `default` file: with one, the fixture's value wins
+        # before the chain is reached, so a missing gate would be invisible.
+        # Neither shipped fixture omits it, so build one that does.
+        #
+        # The discriminator is unambiguous because busy/printers.plist holds
+        # only a "Get printers" operation and no CUPS-Get-Default -- which is
+        # why that fixture ships a `default` file at all. Remove it and
+        # _default_from_printers returns "", so:
+        #   gate holds  -> defaultPrinter == ""
+        #   gate absent -> defaultPrinter == "Brother@Home", read from the HOME
+        #                  planted below, which is the bug this guards.
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = os.path.join(tmp, "fixture")
+            shutil.copytree(os.path.join(FIXTURES, "busy"), fixture)
+            os.remove(os.path.join(fixture, "default"))
+
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, ".cups"))
+            with open(os.path.join(home, ".cups", "lpoptions"), "w") as handle:
+                handle.write("Default Brother@Home\n")
+
+            proc, snapshot = run_cli({"GALLEY_FIXTURE": fixture, "HOME": home})
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotEqual(
+            snapshot["defaultPrinter"], "Brother@Home",
+            "fixture replay read the live ~/.cups/lpoptions -- the chain is not "
+            "gated on fixture mode, so the suite would differ per machine")
+        self.assertEqual(snapshot["defaultPrinter"], "")
 
 
 if __name__ == "__main__":

@@ -176,8 +176,8 @@ def collect(threshold=15, want_completed=False):
         # must not read the developer's live default, or these tests would
         # differ per machine. The fixture's own `default` file is the only
         # client-side source consulted there.
-        if not default:
-            default = default_from_lpoptions(lpoptions_paths()) if not directory else ""
+        if not default and not directory:
+            default = default_from_lpoptions(lpoptions_paths())
         if not default:
             default = _default_from_printers(parsed_printers)
 
