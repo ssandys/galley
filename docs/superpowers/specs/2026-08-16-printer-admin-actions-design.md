@@ -97,31 +97,43 @@ per-user default is set.
 The collector resolves the default in the order the CUPS client library does,
 first hit wins:
 
-1. `LPDEST` environment variable
-2. `PRINTER` environment variable
-3. `~/.cups/lpoptions` — a line `Default <name>`
-4. `/etc/cups/lpoptions` — same
-5. the existing `CUPS-Get-Default` IPP result
+1. `~/.cups/lpoptions` — a line `Default <name>`
+2. `/etc/cups/lpoptions` — same
+3. the existing `CUPS-Get-Default` IPP result
 
 Not `lpstat -d`. Its output (`system default destination: NAME`) is localised, so
 parsing it is fragile in a way that fails silently on a non-English system. File
-reads and environment lookups are deterministic, add no subprocess to a collector
-that currently shells out only to `ipptool` and `systemctl`, and add no
-dependency.
-
-The env vars are included deliberately. The point of this change is to report the
-client default; a version consulting three of the five sources CUPS uses would be
-a half-truth that is wrong for anyone who sets `LPDEST` or `PRINTER`.
+reads are deterministic, add no subprocess to a collector that currently shells
+out only to `ipptool` and `systemctl`, and add no dependency.
 
 `lpoptions` files may contain per-destination option lines as well as the
 `Default` line; only a line whose first token is `Default` is read, and only its
 second token.
 
-**Known limitation, accepted:** the collector runs as a child of the shell
-process, so it sees the *shell's* environment. A `PRINTER` set only in an
-interactive terminal will not be visible to it. Applications launched from that
-same shell inherit the same environment the collector does, so the widget agrees
-with what those applications will do, which is the case that matters.
+### Known limitation: `LPDEST` and `PRINTER` are not honoured
+
+The CUPS client library consults two environment variables **above** both
+`lpoptions` files: `LPDEST` first, then `PRINTER`. This design deliberately
+ignores them, so the chain above is three of CUPS' five sources.
+
+The consequence, stated plainly: **if either variable is set, the ★ can disagree
+with the printer `lp` actually uses.** The widget would show the `lpoptions`
+default while the environment overrode it.
+
+Two reasons that trade is accepted rather than papered over:
+
+- The collector runs as a child of the shell that launched the Omarchy shell, so
+  it sees *that* environment — not the environment of whatever terminal the user
+  is typing in. Honouring the variables would therefore be right only when the
+  two happen to agree, and silently wrong otherwise. A rule that is correct
+  sometimes, in a way the user cannot see, is worse than a rule that is simple
+  and documented.
+- `lpoptions -d` — the action this feature adds — writes to `~/.cups/lpoptions`.
+  So the layer the button controls is always in the chain. The variables can only
+  ever shadow a value the widget itself did not set.
+
+If this ever bites, the fix is two `os.environ` lookups at the front of the
+chain, plus a note that the collector's environment is the shell's.
 
 ## Actions
 
@@ -176,9 +188,10 @@ tool.
 ## Testing
 
 **Python — where the real logic is.** The default-resolution chain gets a test
-per precedence level plus each fallback: `LPDEST` wins over `PRINTER`, `PRINTER`
-over `~/.cups/lpoptions`, the user file over the system file, the system file
-over the IPP result, and the IPP result when nothing else is present. Also: an
+per precedence level plus each fallback: the user file wins over the system file,
+the system file over the IPP result, and the IPP result when neither file is
+present. Plus one asserting `LPDEST`/`PRINTER` are ignored, so the documented
+limitation is a tested property rather than a claim. Also: an
 `lpoptions` file with option lines but no `Default` line falls through, and a
 malformed line does not raise. Driven with `tmp_path` and patched `os.environ`,
 no real files touched.
@@ -203,6 +216,9 @@ that is already default.
   system default is ever wanted, the read stays as it is and only a verb is
   added.
 - **Discovering a non-default cupsd port.**
+- **Honouring `LPDEST`/`PRINTER`** — see "Known limitation" above. Listed here
+  too so a reader skimming for scope does not have to infer it from the
+  precedence chain.
 
 ## What the original estimate got wrong
 
