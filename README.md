@@ -100,7 +100,9 @@ printing · 3 jobs`.
   poll. This sets *your* default (`lpoptions -d`, written to
   `~/.cups/lpoptions`), not the machine's — it is what `lp` and your
   applications will use for you, and it needs no password. Remove
-  `~/.cups/lpoptions` to fall back to the system default.
+  `~/.cups/lpoptions` to fall back to the next default in the chain:
+  `/etc/cups/lpoptions` if root has set one there, otherwise the printer
+  cupsd itself calls default.
 - **`Web UI`** in the panel header opens the CUPS web interface at
   `localhost:631`, which can do considerably more than this widget exposes.
 
