@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -11,6 +12,11 @@ import galley_collect as gc
 
 FIXTURES = os.path.join(HERE, "fixtures")
 COLLECTOR = os.path.join(HERE, "..", "scripts", "galley_collect.py")
+
+
+def read_source(path):
+    with open(path) as handle:
+        return handle.read()
 
 
 def run_cli(env_extra=None):
@@ -168,6 +174,123 @@ class CompletedIdsTest(unittest.TestCase):
     def test_completed_ids_empty_when_not_requested(self):
         proc, snapshot = run_cli({"GALLEY_FIXTURE": os.path.join(FIXTURES, "idle")})
         self.assertEqual(snapshot["completedIds"], [])
+
+
+class ClientDefaultTest(unittest.TestCase):
+    """The default printer comes from the client's lpoptions, then IPP.
+
+    `lpoptions -d` writes a per-user default to ~/.cups/lpoptions that cupsd
+    never sees, so a widget reading only CUPS-Get-Default would show a stale
+    star after the user set a default from the panel. See the design spec.
+
+    Paths are injected rather than patched via HOME, because the system file is
+    an absolute path (/etc/cups/lpoptions) that a test cannot relocate. Passing
+    them in keeps these tests off the real lpoptions locations, so they never
+    depend on whether the developer has set a default.
+    """
+
+    def _write(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            handle.write(text)
+
+    def test_user_file_supplies_the_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default Brother@Home\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent/system")),
+                "Brother@Home")
+
+    def test_user_file_wins_over_the_system_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            system = os.path.join(tmp, "system", "lpoptions")
+            self._write(user, "Default Brother@Home\n")
+            self._write(system, "Default Canon@OLP\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, system)), "Brother@Home")
+
+    def test_system_file_is_used_when_the_user_file_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            system = os.path.join(tmp, "system", "lpoptions")
+            self._write(system, "Default Canon@OLP\n")
+            self.assertEqual(
+                gc.default_from_lpoptions(
+                    (os.path.join(tmp, "absent"), system)), "Canon@OLP")
+
+    def test_no_files_yields_empty_so_the_caller_falls_back_to_ipp(self):
+        self.assertEqual(
+            gc.default_from_lpoptions(("/nonexistent/a", "/nonexistent/b")), "")
+
+    def test_option_lines_without_a_default_line_yield_empty(self):
+        # A real lpoptions file usually carries per-destination option lines.
+        # Only a line whose FIRST token is Default names the default.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Dest Canon@OLP copies=1 number-up=1\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")), "")
+
+    def test_an_instance_suffix_is_stripped(self):
+        # `lpoptions -d` accepts destination[/instance]; the printer names the
+        # snapshot matches against never carry an instance.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default Brother@Home/duplex\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")),
+                "Brother@Home")
+
+    def test_a_bare_default_keyword_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")), "")
+
+    def test_a_directory_in_place_of_a_file_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(gc.default_from_lpoptions((tmp, "/nonexistent")), "")
+
+    def test_lpdest_and_printer_env_vars_are_ignored(self):
+        # Documented limitation, pinned so honouring them later is a deliberate
+        # decision rather than an accident. CUPS consults these ABOVE both
+        # lpoptions files; galley does not, because the collector inherits the
+        # shell's environment rather than the user's terminal.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default Brother@Home\n")
+            env = dict(os.environ)
+            env["LPDEST"] = "Canon@OLP"
+            env["PRINTER"] = "Canon@OLP"
+            with unittest.mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(
+                    gc.default_from_lpoptions((user, "/nonexistent")),
+                    "Brother@Home")
+
+    def test_lpoptions_paths_are_the_documented_two(self):
+        user, system = gc.lpoptions_paths()
+        self.assertTrue(user.endswith(os.path.join(".cups", "lpoptions")), user)
+        self.assertEqual(system, "/etc/cups/lpoptions")
+
+    def test_fixture_replay_never_reads_the_live_lpoptions(self):
+        # The chain must be SKIPPED in fixture mode, not merely ordered after
+        # the fixture's own default file. Both fixtures ship one, so ordering
+        # alone would pass today and break the moment a fixture omitted it --
+        # at which point replay would read the developer's real default and
+        # these tests would differ per machine. Same class of defect as #4.
+        source = read_source(COLLECTOR)
+        body = source[source.index("def collect("):]
+        self.assertIn("directory", body)
+        marker = "default_from_lpoptions"
+        self.assertIn(
+            marker, body,
+            "collect() never consults the lpoptions chain")
+        call_line = next(line for line in body.splitlines() if marker in line)
+        self.assertIn(
+            "not directory", call_line,
+            "the lpoptions chain is not gated on fixture mode: %r" % call_line)
 
 
 if __name__ == "__main__":
