@@ -91,6 +91,46 @@ def _default_from_printers(parsed):
     return groups[0].get("printer-name", "") if groups else ""
 
 
+def lpoptions_paths():
+    """The two client-side lpoptions files CUPS reads, in precedence order.
+
+    Computed rather than module-level constants so a test can relocate HOME,
+    and so the user path is resolved at call time rather than import time.
+    """
+    return (os.path.join(os.path.expanduser("~"), ".cups", "lpoptions"),
+            "/etc/cups/lpoptions")
+
+
+def default_from_lpoptions(paths):
+    """The client-side default printer name, or "" if no file names one.
+
+    `lpoptions -d` writes `Default <name>` here, and cupsd never sees it -- so
+    this is the only way the panel's star can track a default the panel itself
+    set. See docs/superpowers/specs/2026-08-16-printer-admin-actions-design.md.
+
+    LPDEST and PRINTER are deliberately NOT consulted, though CUPS ranks them
+    above both files: the collector inherits the environment of the shell that
+    launched the Omarchy shell, not the user's terminal, so honouring them would
+    be right only when those two happen to agree. Documented limitation, with a
+    test pinning it.
+    """
+    for path in paths:
+        try:
+            with open(path) as handle:
+                for line in handle:
+                    parts = line.split()
+                    # Only a line whose first token is Default names the
+                    # default; the rest are per-destination option lines.
+                    if len(parts) >= 2 and parts[0] == "Default":
+                        # destination[/instance] -- the snapshot's printer names
+                        # never carry an instance.
+                        return parts[1].split("/")[0]
+        except OSError:
+            # Missing, unreadable, or a directory: try the next one.
+            continue
+    return ""
+
+
 def completed_job_ids():
     """IDs of the ten most recently completed jobs.
 
@@ -132,6 +172,12 @@ def collect(threshold=15, want_completed=False):
                 raise RuntimeError("ipptool %s request failed: %s"
                                    % (label, tests[0].get("StatusCode", "unknown")))
 
+        # Fixture mode is deliberately excluded: replaying a recorded snapshot
+        # must not read the developer's live default, or these tests would
+        # differ per machine. The fixture's own `default` file is the only
+        # client-side source consulted there.
+        if not default and not directory:
+            default = default_from_lpoptions(lpoptions_paths())
         if not default:
             default = _default_from_printers(parsed_printers)
 

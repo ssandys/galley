@@ -25,6 +25,7 @@ matter, `r` and `Esc`.
 | `python3` | The collector | `python` |
 | `systemctl` | Detecting whether cupsd is asleep | `systemd` |
 | `notify-send` | Desktop notifications | `libnotify` |
+| `xdg-open` | Opening the CUPS web interface | `xdg-utils` |
 
 Also required: **CUPS ≥ 2.4** (for `ipptool -X`, the XML plist output format —
 JSON output via `-j` didn't land until CUPS 2.5) and a running `cups.service`
@@ -94,6 +95,16 @@ printing · 3 jobs`.
   it with no filter set) to close the panel.
 - **Middle-click** the bar icon to refresh in the background without opening
   the panel.
+- **`set default`** on a printer card makes it your default printer. The ★
+  beside a printer's name marks the current default, and moves on the next
+  poll. This sets *your* default (`lpoptions -d`, written to
+  `~/.cups/lpoptions`), not the machine's — it is what `lp` and your
+  applications will use for you, and it needs no password. Remove
+  `~/.cups/lpoptions` to fall back to the next default in the chain:
+  `/etc/cups/lpoptions` if root has set one there, otherwise the printer
+  cupsd itself calls default.
+- **`Web UI`** in the panel header opens the CUPS web interface at
+  `localhost:631`, which can do considerably more than this widget exposes.
 
 ## Configuration
 

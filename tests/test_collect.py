@@ -1,9 +1,11 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -168,6 +170,137 @@ class CompletedIdsTest(unittest.TestCase):
     def test_completed_ids_empty_when_not_requested(self):
         proc, snapshot = run_cli({"GALLEY_FIXTURE": os.path.join(FIXTURES, "idle")})
         self.assertEqual(snapshot["completedIds"], [])
+
+
+class ClientDefaultTest(unittest.TestCase):
+    """The default printer comes from the client's lpoptions, then IPP.
+
+    `lpoptions -d` writes a per-user default to ~/.cups/lpoptions that cupsd
+    never sees, so a widget reading only CUPS-Get-Default would show a stale
+    star after the user set a default from the panel. See the design spec.
+
+    Paths are injected rather than patched via HOME, because the system file is
+    an absolute path (/etc/cups/lpoptions) that a test cannot relocate. Passing
+    them in keeps these tests off the real lpoptions locations, so they never
+    depend on whether the developer has set a default.
+    """
+
+    def _write(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            handle.write(text)
+
+    def test_user_file_supplies_the_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default Brother@Home\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent/system")),
+                "Brother@Home")
+
+    def test_user_file_wins_over_the_system_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            system = os.path.join(tmp, "system", "lpoptions")
+            self._write(user, "Default Brother@Home\n")
+            self._write(system, "Default Canon@OLP\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, system)), "Brother@Home")
+
+    def test_system_file_is_used_when_the_user_file_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            system = os.path.join(tmp, "system", "lpoptions")
+            self._write(system, "Default Canon@OLP\n")
+            self.assertEqual(
+                gc.default_from_lpoptions(
+                    (os.path.join(tmp, "absent"), system)), "Canon@OLP")
+
+    def test_no_files_yields_empty_so_the_caller_falls_back_to_ipp(self):
+        self.assertEqual(
+            gc.default_from_lpoptions(("/nonexistent/a", "/nonexistent/b")), "")
+
+    def test_option_lines_without_a_default_line_yield_empty(self):
+        # A real lpoptions file usually carries per-destination option lines.
+        # Only a line whose FIRST token is Default names the default.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Dest Canon@OLP copies=1 number-up=1\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")), "")
+
+    def test_an_instance_suffix_is_stripped(self):
+        # `lpoptions -d` accepts destination[/instance]; the printer names the
+        # snapshot matches against never carry an instance.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default Brother@Home/duplex\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")),
+                "Brother@Home")
+
+    def test_a_bare_default_keyword_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")), "")
+
+    def test_a_directory_in_place_of_a_file_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(gc.default_from_lpoptions((tmp, "/nonexistent")), "")
+
+    def test_lpdest_and_printer_env_vars_are_ignored(self):
+        # Documented limitation, pinned so honouring them later is a deliberate
+        # decision rather than an accident. CUPS consults these ABOVE both
+        # lpoptions files; galley does not, because the collector inherits the
+        # shell's environment rather than the user's terminal.
+        with tempfile.TemporaryDirectory() as tmp:
+            user = os.path.join(tmp, "user", "lpoptions")
+            self._write(user, "Default Brother@Home\n")
+            env = dict(os.environ)
+            env["LPDEST"] = "Canon@OLP"
+            env["PRINTER"] = "Canon@OLP"
+            with unittest.mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(
+                    gc.default_from_lpoptions((user, "/nonexistent")),
+                    "Brother@Home")
+
+    def test_lpoptions_paths_are_the_documented_two(self):
+        user, system = gc.lpoptions_paths()
+        self.assertTrue(user.endswith(os.path.join(".cups", "lpoptions")), user)
+        self.assertEqual(system, "/etc/cups/lpoptions")
+
+    def test_fixture_replay_never_reads_the_live_lpoptions(self):
+        # Behavioural, not a source scrape. The gate only reveals itself when a
+        # fixture has NO `default` file: with one, the fixture's value wins
+        # before the chain is reached, so a missing gate would be invisible.
+        # Neither shipped fixture omits it, so build one that does.
+        #
+        # The discriminator is unambiguous because busy/printers.plist holds
+        # only a "Get printers" operation and no CUPS-Get-Default -- which is
+        # why that fixture ships a `default` file at all. Remove it and
+        # _default_from_printers returns "", so:
+        #   gate holds  -> defaultPrinter == ""
+        #   gate absent -> defaultPrinter == "Brother@Home", read from the HOME
+        #                  planted below, which is the bug this guards.
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = os.path.join(tmp, "fixture")
+            shutil.copytree(os.path.join(FIXTURES, "busy"), fixture)
+            os.remove(os.path.join(fixture, "default"))
+
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, ".cups"))
+            with open(os.path.join(home, ".cups", "lpoptions"), "w") as handle:
+                handle.write("Default Brother@Home\n")
+
+            proc, snapshot = run_cli({"GALLEY_FIXTURE": fixture, "HOME": home})
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotEqual(
+            snapshot["defaultPrinter"], "Brother@Home",
+            "fixture replay read the live ~/.cups/lpoptions -- the chain is not "
+            "gated on fixture mode, so the suite would differ per machine")
+        self.assertEqual(snapshot["defaultPrinter"], "")
 
 
 if __name__ == "__main__":

@@ -198,6 +198,24 @@ Panel {
           }
 
           Button {
+            // The header, not a printer card: this is a global action, and the
+            // card rows are per-printer. Refresh, the only other global action,
+            // already lives here.
+            text: "Web UI"
+            foreground: root.fg
+            tooltipText: "Open the CUPS web interface at localhost:631"
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            horizontalPadding: Style.spacing.controlPaddingX
+            verticalPadding: Style.spacing.controlPaddingY
+            enabled: controller.actionInProgress === ""
+            opacity: enabled ? 1.0 : 0.4
+            // web-ui takes no target, but runAction's signature is
+            // (verb, target) and galley_action.sh ignores a stray one.
+            onClicked: controller.runAction("web-ui", "")
+          }
+
+          Button {
             text: "Refresh"
             foreground: root.fg
             tooltipText: "Refresh printers and queue"
@@ -342,6 +360,27 @@ Panel {
                     onClicked: controller.runAction(
                       modelData.state === "stopped" ? "resume" : "pause",
                       modelData.name)
+                  }
+
+                  Button {
+                    // Hidden rather than disabled on the printer that already
+                    // is the default: a disabled button invites a click and
+                    // explains nothing, while an absent one reads correctly --
+                    // the star beside the name already says which printer this
+                    // is. `isDefault` comes from the snapshot, which now
+                    // resolves the CLIENT default, so this button's effect is
+                    // visible on the next poll. See the design spec.
+                    visible: !modelData.isDefault
+                    text: "set default"
+                    foreground: root.fg
+                    tooltipText: "Make this your default printer"
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(2)
+                    enabled: controller.actionInProgress === ""
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: controller.runAction("set-default", modelData.name)
                   }
 
                   Button {
