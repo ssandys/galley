@@ -51,7 +51,29 @@ The fix is to report the **client's** default rather than cupsd's, so
 `lpoptions -d` and the ★ agree.
 
 The rejected alternative was `lpadmin -d`, setting the *system* default to match
-the existing read. **Recording honestly that its risk was lower than first
+the existing read. The two commands are two layers of the same setting, and
+`lpoptions` sits on top — from their man pages:
+
+> **`lpadmin -d`**: "sets the default printer or class to *destination*.
+> Subsequent print jobs submitted via the `lp` or `lpr` commands will use this
+> destination **unless the user specifies otherwise with the `lpoptions`
+> command**."
+
+> **`lpoptions -d`**: "Sets the **user** default printer to *destination*… This
+> option **overrides the system default printer for the current user**."
+
+| | Scope | Written to | Seen by `CUPS-Get-Default`? |
+|---|---|---|---|
+| `lpadmin -d` | system, all users | cupsd's own config | yes |
+| `lpoptions -d` | current user | `~/.cups/lpoptions` | no |
+| `sudo lpoptions -d` | all users, client-side | `/etc/cups/lpoptions` | no |
+
+That third row is why "client default" and "system default" are not simply
+"user" and "machine": a root-written `lpoptions` file is machine-wide and still
+invisible to cupsd. The precedence chain below therefore reads both `lpoptions`
+locations, not just the user's.
+
+**Recording honestly that the rejected option's risk was lower than I first
 estimated:** the original design spec verified `cupsctl` succeeds unauthenticated
 on this machine and concluded "admin ops are viable for phase 2", so `lpadmin -d`
 would most likely have worked without a password prompt. It was not chosen
