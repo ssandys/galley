@@ -249,21 +249,74 @@ class ClientDefaultTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(gc.default_from_lpoptions((tmp, "/nonexistent")), "")
 
-    def test_lpdest_and_printer_env_vars_are_ignored(self):
-        # Documented limitation, pinned so honouring them later is a deliberate
-        # decision rather than an accident. CUPS consults these ABOVE both
-        # lpoptions files; galley does not, because the collector inherits the
-        # shell's environment rather than the user's terminal.
+    def test_an_invalid_utf8_byte_does_not_blank_the_snapshot(self):
+        # UnicodeDecodeError is a ValueError, NOT an OSError, so a stray byte
+        # escaped the guard around the read and was caught by collect()'s bare
+        # `except Exception` -- replacing the whole snapshot with an error
+        # envelope on every poll until someone edited the file. A file galley
+        # does not own must not be able to blank the panel, and an undecodable
+        # option value must not hide a perfectly good Default line. Destination
+        # names are ASCII-restricted by CUPS; option values are not.
         with tempfile.TemporaryDirectory() as tmp:
             user = os.path.join(tmp, "user", "lpoptions")
-            self._write(user, "Default Brother@Home\n")
-            env = dict(os.environ)
-            env["LPDEST"] = "Canon@OLP"
-            env["PRINTER"] = "Canon@OLP"
-            with unittest.mock.patch.dict(os.environ, env, clear=True):
-                self.assertEqual(
-                    gc.default_from_lpoptions((user, "/nonexistent")),
-                    "Brother@Home")
+            os.makedirs(os.path.dirname(user), exist_ok=True)
+            with open(user, "wb") as handle:
+                handle.write(b"Dest Canon@OLP/note=Caf\xe9\n"
+                             b"Default Brother@Home\n")
+            self.assertEqual(
+                gc.default_from_lpoptions((user, "/nonexistent")),
+                "Brother@Home")
+
+    def _live_snapshot(self, home, env_extra=None):
+        """Drive collect() in LIVE mode (no fixture) with HOME relocated.
+
+        The chain's wiring lives in collect(), so any test that only calls
+        default_from_lpoptions is blind to it. ipptool is patched rather than
+        faked onto PATH because the assertion is about which source the default
+        came from, not about subprocess plumbing.
+        """
+        with open(os.path.join(FIXTURES, "idle", "printers.plist"), "rb") as h:
+            printers = h.read()
+        with open(os.path.join(FIXTURES, "idle", "jobs.plist"), "rb") as h:
+            jobs = h.read()
+        env = {"HOME": home}
+        env.update(env_extra or {})
+        with unittest.mock.patch.dict(os.environ, env):
+            os.environ.pop("GALLEY_FIXTURE", None)
+            with unittest.mock.patch.object(gc, "cupsd_running", lambda: True), \
+                 unittest.mock.patch.object(gc, "run_ipptool",
+                                            side_effect=[printers, jobs]):
+                return gc.collect()
+
+    def test_live_mode_actually_consults_the_user_lpoptions_file(self):
+        # The one thing every other test in this class is blind to: the wiring
+        # into collect(). Deleting those two lines leaves the whole Python suite
+        # green -- the parser tests call default_from_lpoptions directly, both
+        # shipped fixtures supply their own `default`, and the gate test below
+        # asserts the chain is UNREACHABLE, which an unwired collector satisfies
+        # perfectly. idle/printers.plist carries a single "Get printers"
+        # operation and no CUPS-Get-Default, so _default_from_printers yields ""
+        # and the star can only have come from the file planted here.
+        with tempfile.TemporaryDirectory() as home:
+            self._write(os.path.join(home, ".cups", "lpoptions"),
+                        "Default Brother@Home\n")
+            snapshot = self._live_snapshot(home)
+        self.assertEqual(snapshot["defaultPrinter"], "Brother@Home")
+
+    def test_lpdest_and_printer_env_vars_are_ignored(self):
+        # Documented limitation, pinned where it actually lives: collect()'s
+        # chain. The previous version patched os.environ and then called
+        # default_from_lpoptions, which never reads os.environ -- so it asserted
+        # parsing, and adding env-var support to the chain would have left it
+        # green, which is precisely the drift it exists to catch. CUPS ranks both
+        # of these ABOVE the files; galley honours neither, because the collector
+        # inherits the shell's environment rather than the user's terminal.
+        with tempfile.TemporaryDirectory() as home:
+            self._write(os.path.join(home, ".cups", "lpoptions"),
+                        "Default Brother@Home\n")
+            snapshot = self._live_snapshot(
+                home, {"LPDEST": "Canon@OLP", "PRINTER": "Canon@OLP"})
+        self.assertEqual(snapshot["defaultPrinter"], "Brother@Home")
 
     def test_lpoptions_paths_are_the_documented_two(self):
         user, system = gc.lpoptions_paths()

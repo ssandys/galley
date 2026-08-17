@@ -1,6 +1,10 @@
 # tests/test_action.py
 import os
+import shutil
+import stat
 import subprocess
+import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(__file__)
@@ -83,6 +87,64 @@ class AdminActionTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout.decode().strip(),
                          "xdg-open http://localhost:631")
+
+
+class WebUiDetachTest(unittest.TestCase):
+    """web-ui must return before the browser does.
+
+    Every other verb here is short-lived, so the script waits for it and reports
+    what it said. `xdg-open` is not: on its generic path it runs the browser in
+    the foreground with no `&`, and `output=$(...)` waits for the pipe to close
+    rather than for the child to exit -- so even a browser that forks holds it
+    open while it keeps inherited stdout. Either alone kept the action running
+    for the whole browsing session, which left Controller.qml's actionInProgress
+    set and every button in the panel disabled with no message. A warm start
+    hides this completely, because the second Chrome process relays and exits.
+    """
+
+    def _launcher_that_outlives_us(self, directory, marker):
+        # Stands in for a cold-start browser: records that it ran, then stays
+        # alive far longer than the assertion window.
+        path = os.path.join(directory, "xdg-open")
+        with open(path, "w") as handle:
+            handle.write("#!/bin/sh\ntouch %s\nsleep 5\n" % marker)
+        os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+
+    def test_web_ui_returns_before_the_browser_exits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "launched")
+            self._launcher_that_outlives_us(tmp, marker)
+            env = dict(os.environ)
+            env["PATH"] = tmp + os.pathsep + env.get("PATH", "")
+            started = time.monotonic()
+            proc = subprocess.run(["bash", ACTION, "web-ui"],
+                                  capture_output=True, timeout=15, env=env)
+            elapsed = time.monotonic() - started
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+            self.assertLess(
+                elapsed, 3.0,
+                "web-ui waited %.1fs for the browser instead of detaching"
+                % elapsed)
+            deadline = time.monotonic() + 3.0
+            while not os.path.exists(marker) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(os.path.exists(marker),
+                            "detaching must still launch the browser")
+
+    def test_a_missing_launcher_is_still_reported(self):
+        # Detaching gives up the exit status of what we launched, so the one
+        # failure worth catching -- xdg-utils not installed -- is checked before
+        # the fork rather than inferred afterwards.
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["PATH"] = tmp
+            # bash by absolute path: PATH is emptied to hide xdg-open, and a
+            # relative name would hide the interpreter from the test too.
+            proc = subprocess.run([shutil.which("bash") or "/bin/bash",
+                                   ACTION, "web-ui"],
+                                  capture_output=True, timeout=15, env=env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("galley: ", proc.stderr.decode())
 
 
 if __name__ == "__main__":
