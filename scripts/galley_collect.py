@@ -116,7 +116,13 @@ def default_from_lpoptions(paths):
     """
     for path in paths:
         try:
-            with open(path) as handle:
+            # errors="replace" rather than a default strict read: a byte that is
+            # not valid UTF-8 raises UnicodeDecodeError, which is a ValueError
+            # and so escapes the OSError guard below, reaching collect()'s bare
+            # `except Exception` and replacing the entire snapshot with an error
+            # envelope. Substituting the byte keeps a mangled option value from
+            # hiding an otherwise readable Default line.
+            with open(path, errors="replace") as handle:
                 for line in handle:
                     parts = line.split()
                     # Only a line whose first token is Default names the
