@@ -63,14 +63,26 @@ class CrossLanguageErrorReasonsTest(unittest.TestCase):
     A one-sided edit makes a red printer sit next to a "0 errors" summary.
     """
 
-    def test_javascript_error_reasons_match_python(self):
+    def _js_list(self, name):
         source = read("Model.js")
+        match = re.search(r"var %s = \[(.*?)\]" % name, source, re.S)
+        self.assertIsNotNone(match, "%s array not found in Model.js" % name)
+        return set(re.findall(r'"([^"]+)"', match.group(1)))
 
-        match = re.search(r"var ERROR_REASONS = \[(.*?)\]", source, re.S)
-        self.assertIsNotNone(match, "ERROR_REASONS array not found in Model.js")
+    def test_javascript_error_reasons_match_python(self):
+        self.assertEqual(self._js_list("ERROR_REASONS"), set(gn.ERROR_REASONS))
 
-        js_reasons = set(re.findall(r'"([^"]+)"', match.group(1)))
-        self.assertEqual(js_reasons, set(gn.ERROR_REASONS))
+    def test_javascript_warn_reasons_match_python(self):
+        # Same hazard as ERROR_REASONS, one tier down: Python drives
+        # summary.warnPrinters and JavaScript drives the amber glyph, so a
+        # one-sided edit gives an amber printer beside a "0 warnings" summary.
+        self.assertEqual(self._js_list("WARN_REASONS"), set(gn.WARN_REASONS))
+
+    def test_the_two_tiers_do_not_overlap(self):
+        # has_warning yields to has_error, so an overlapping entry would be
+        # unreachable in the warning tier -- a silent no-op rather than a
+        # visible contradiction, which is worse.
+        self.assertEqual(set(gn.ERROR_REASONS) & set(gn.WARN_REASONS), set())
 
 
 class StateNameLiteralsTest(unittest.TestCase):
@@ -399,6 +411,37 @@ class ColorPaletteTest(unittest.TestCase):
             "hex colour literals found in QML: %r. Model.js owns the palette; "
             "use Model.COLOR_OK/WARN/ERROR/BUSY instead of inlining a value, "
             "so the two cannot drift apart (galley#6)." % (offenders,),
+        )
+
+    def test_every_model_reference_from_qml_exists(self):
+        """Every Model.<name> a QML file calls must be declared in Model.js.
+
+        qmllint parses QML but resolves nothing: it cannot see inside an
+        imported JavaScript namespace, so `Model.reasonTxt(printer)` is
+        syntactically perfect and evaluates to undefined at runtime. A Text
+        bound to it renders empty and the panel simply loses that line -- no
+        warning, no error, and the same silent-omission failure this palette
+        guard exists to catch one directory over.
+        """
+        source = read("Model.js")
+        # QML imports the whole script as a namespace, so every top-level
+        # declaration is reachable -- not only what module.exports lists.
+        declared = set(re.findall(r"^(?:function|var)\s+(\w+)", source, re.M))
+
+        missing = {}
+        for name, qml in qml_sources():
+            # The filename itself reads as a namespace access: `import
+            # "Model.js" as Model` and every comment mentioning Model.js would
+            # otherwise be scraped as a reference to a member called `js`.
+            refs = set(re.findall(r"Model\.(\w+)", qml.replace("Model.js", "")))
+            unknown = sorted(r for r in refs if r not in declared)
+            if unknown:
+                missing[name] = unknown
+        self.assertEqual(
+            missing, {},
+            "QML references names that Model.js does not declare: %r. These "
+            "evaluate to undefined at runtime and render as nothing."
+            % (missing,),
         )
 
     def test_the_qml_actually_consumes_the_palette(self):

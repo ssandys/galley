@@ -76,15 +76,18 @@ from-source setup and the edit/reload loop.
 | Plain glyph | Idle — no active jobs |
 | Glyph + badge `N` | `N` jobs currently active |
 | Glyph + badge `9+` | Ten or more jobs active — hover for the exact count |
-| Amber glyph | A job is held, or a supply is running low |
-| Red glyph | A printer is stopped, or the collector itself failed |
+| Amber glyph | A job is held, a supply is running low, or a printer reports a warning — paper low, output tray almost full, waste container almost full, drum near end of life |
+| Red glyph | A printer is stopped or reports a fault — out of paper, jam, cover open, offline, and similar — or the collector itself failed |
 
 The badge colour deliberately never changes: severity reaches the bar as the
 glyph's colour, so a red glyph with a badge means "jobs queued, and something is
 wrong".
 
 Hovering the icon shows a tooltip summary, e.g. `2 printers · Canon@OLP
-printing · 3 jobs`.
+printing · 3 jobs`. When something is wrong it names the fault rather than
+counting it — `2 printers · 0 jobs · Brother@Home: Out of paper` — with
+`(+N more)` when more than one printer is affected. So you can tell *what* is
+wrong without opening the panel.
 
 ## Using the panel
 
@@ -105,6 +108,15 @@ printing · 3 jobs`.
   cupsd itself calls default.
 - **`Web UI`** in the panel header opens the CUPS web interface at
   `localhost:631`, which can do considerably more than this widget exposes.
+- **Faults are named, not just flagged.** Under a printer's name, Galley shows
+  the reason it is not healthy — "Out of paper", "Paper jam", "Cover open" —
+  preferring the printer's own message when it sends one and falling back to
+  the IPP state reason when it doesn't. A reason Galley has no phrase for is
+  shown as the raw keyword rather than hidden.
+- **A job that isn't moving says why**, beside its name in the queue: "Printer
+  stopped", "Waiting for the printer", "Needs authentication". Jobs making
+  normal progress stay quiet, so anything with text next to it is the one
+  worth looking at.
 
 ## Configuration
 

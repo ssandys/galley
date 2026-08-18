@@ -201,7 +201,8 @@ class SummaryTest(unittest.TestCase):
         jobs = [{"id": 1}, {"id": 2}, {"id": 3}]
         summary = gn.summarize(printers, jobs, 15)
         self.assertEqual(summary, {
-            "printers": 2, "activeJobs": 3, "errorPrinters": 1, "lowSupplies": 1,
+            "printers": 2, "activeJobs": 3, "errorPrinters": 1,
+            "warnPrinters": 0, "lowSupplies": 1,
         })
 
     def test_waste_toner_never_counts_as_low(self):
@@ -239,6 +240,100 @@ class SummaryTest(unittest.TestCase):
             printer = {"name": "p", "state": "idle",
                        "stateReasons": [reason], "supplies": []}
             self.assertFalse(gn.has_error(printer), reason)
+
+
+class WarningReasonTest(unittest.TestCase):
+    """The tier between healthy and broken.
+
+    A printer about to run out of paper is not an error -- it is still printing
+    -- but it is not nothing either, and the whole point of surfacing it is to
+    say so before the queue stalls. This is the tier that was missing when a job
+    stopped for media-empty with no earlier warning.
+    """
+
+    def _printer(self, *reasons):
+        return {"name": "p", "state": "idle",
+                "stateReasons": list(reasons), "supplies": []}
+
+    def test_media_low_warns_without_erroring(self):
+        printer = self._printer("media-low")
+        self.assertTrue(gn.has_warning(printer))
+        self.assertFalse(gn.has_error(printer))
+
+    def test_warning_reasons_match_across_severity_suffixes(self):
+        for reason in ("media-low", "media-low-warning", "media-low-report"):
+            self.assertTrue(gn.has_warning(self._printer(reason)), reason)
+
+    def test_waste_almost_full_warns_although_waste_levels_never_alert(self):
+        # low_supplies deliberately excludes waste-toner, because IPP does not
+        # define whether its level means full or remaining. The reason keyword
+        # carries no such ambiguity, so it is the only trustworthy way to warn
+        # about a waste box filling up.
+        self.assertTrue(gn.has_warning(self._printer("marker-waste-almost-full")))
+
+    def test_an_error_is_not_also_reported_as_a_warning(self):
+        # Severity is a ladder, not a set: a stopped printer with media-empty
+        # must count once, as an error, or summary.warnPrinters double-counts
+        # the same fault the error count already reported.
+        printer = self._printer("media-empty")
+        self.assertTrue(gn.has_error(printer))
+        self.assertFalse(gn.has_warning(printer))
+
+    def test_warning_alongside_an_error_still_yields_only_an_error(self):
+        printer = self._printer("media-low", "media-jam")
+        self.assertTrue(gn.has_error(printer))
+        self.assertFalse(gn.has_warning(printer))
+
+    def test_benign_reasons_do_not_warn(self):
+        for reason in ("none", "", "other", "job-printing"):
+            self.assertFalse(gn.has_warning(self._printer(reason)), reason)
+
+    def test_supply_low_reasons_stay_out_of_the_warning_tier(self):
+        # toner-low and marker-supply-low are already covered by marker-levels
+        # via low_supplies, with a configurable threshold and hysteresis.
+        # Counting them here too would warn twice for one condition, at a
+        # threshold the user cannot tune.
+        for reason in ("toner-low", "marker-supply-low", "developer-low"):
+            self.assertFalse(gn.has_warning(self._printer(reason)), reason)
+
+    def test_summary_counts_warning_printers(self):
+        printers = [
+            {"name": "a", "state": "idle", "stateReasons": ["media-low"],
+             "supplies": []},
+            {"name": "b", "state": "idle", "stateReasons": ["media-jam"],
+             "supplies": []},
+            {"name": "c", "state": "idle", "stateReasons": ["none"],
+             "supplies": []},
+        ]
+        summary = gn.summarize(printers, [], 15)
+        self.assertEqual(summary["warnPrinters"], 1)
+        self.assertEqual(summary["errorPrinters"], 1)
+
+
+class NewlyCoveredErrorReasonTest(unittest.TestCase):
+    """Faults that used to read as healthy.
+
+    Each of these stops the printer in practice while leaving printer-state
+    reachable as idle on some backends, so before this they produced a stalled
+    queue with a green glyph.
+    """
+
+    def test_hardware_faults_are_errors(self):
+        for reason in ("interlock-open", "output-tray-missing",
+                       "fuser-over-temp", "fuser-under-temp",
+                       "opc-life-over", "developer-empty",
+                       "marker-waste-full", "spool-area-full",
+                       "cups-missing-filter"):
+            printer = {"name": "p", "state": "idle",
+                       "stateReasons": [reason], "supplies": []}
+            self.assertTrue(gn.has_error(printer), reason)
+
+    def test_cups_missing_filter_matches_its_suffixed_form(self):
+        # CUPS emits this only as cups-missing-filter-error, so the base entry
+        # has to survive suffix stripping to match at all.
+        printer = {"name": "p", "state": "idle",
+                   "stateReasons": ["cups-missing-filter-error"], "supplies": []}
+        self.assertTrue(gn.has_error(printer))
 
 
 class BuildSnapshotTest(unittest.TestCase):

@@ -309,10 +309,19 @@ Panel {
                   }
 
                   Text {
-                    text: modelData.stateMessage || modelData.state
-                    color: root.dim
+                    // Model.reasonText, not stateMessage-or-state: many CUPS
+                    // backends leave printer-state-message empty, and this line
+                    // then showed the bare word "stopped" while the cause sat
+                    // unread in stateReasons. Reporting a fault without naming
+                    // it sends the user looking in the wrong place.
+                    text: Model.reasonText(modelData)
+                    color: Model.printerHasError(modelData) ? Model.COLOR_ERROR
+                         : Model.printerHasWarning(modelData) ? Model.COLOR_WARN
+                         : root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
                   }
                 }
 
@@ -593,6 +602,30 @@ Panel {
                   font.pixelSize: Style.font.caption
                   elide: Text.ElideRight
                   Layout.fillWidth: true
+                }
+
+                Text {
+                  // Why this job is not moving. job-state-reasons was collected
+                  // and normalized from the start and then read by nothing, so a
+                  // stalled job looked exactly like a queued one. Present only
+                  // when there is something to say: a queue where every row
+                  // carries text teaches you to stop reading the column, and
+                  // then the row that matters gets skipped with the rest.
+                  //
+                  // Amber for every reason, including the format errors: this is
+                  // the job's problem, not the printer's, and red here would
+                  // compete with the printer cards above for the same alarm.
+                  readonly property string reason: Model.jobReasonText(modelData)
+                  visible: reason !== ""
+                  text: reason
+                  color: Model.COLOR_WARN
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideRight
+                  // Capped rather than fillWidth: the job name above already
+                  // takes the slack, and a long vendor reason must not push the
+                  // page count and cancel button off the row.
+                  Layout.maximumWidth: Style.space(70)
                 }
 
                 Text {

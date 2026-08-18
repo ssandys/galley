@@ -54,8 +54,92 @@ function parseSnapshot(raw) {
 var ERROR_REASONS = [
   "media-jam", "media-empty", "media-needed", "toner-empty",
   "marker-supply-empty", "offline", "offline-report", "door-open", "cover-open",
-  "input-tray-missing", "output-area-full", "shutdown"
+  "input-tray-missing", "output-area-full", "shutdown",
+  "interlock-open", "output-tray-missing", "fuser-over-temp",
+  "fuser-under-temp", "opc-life-over", "developer-empty", "marker-waste-full",
+  "spool-area-full", "cups-missing-filter"
 ]
+
+// Mirrors WARN_REASONS in scripts/galley_normalize.py — the two MUST agree.
+// Conditions worth naming before they become errors. toner-low and its
+// siblings are absent on purpose: low_supplies already reports those from
+// marker-levels against a user-tunable threshold.
+var WARN_REASONS = [
+  "media-low", "output-area-almost-full", "marker-waste-almost-full",
+  "opc-near-eol"
+]
+
+// Short human phrases for the reasons that actually occur. Anything missing
+// falls through to humanizeReason(), so an unmapped or vendor-specific keyword
+// is still readable -- never silently dropped, which was the original bug.
+var REASON_TEXT = {
+  "media-empty": "Out of paper",
+  "media-needed": "Load paper",
+  "media-low": "Paper low",
+  "media-jam": "Paper jam",
+  "cover-open": "Cover open",
+  "door-open": "Door open",
+  "interlock-open": "Interlock open",
+  "input-tray-missing": "Paper tray missing",
+  "output-tray-missing": "Output tray missing",
+  "output-area-full": "Output tray full",
+  "output-area-almost-full": "Output tray almost full",
+  "toner-empty": "Out of toner",
+  "toner-low": "Toner low",
+  "marker-supply-empty": "Out of ink",
+  "marker-supply-low": "Ink low",
+  "marker-waste-full": "Waste container full",
+  "marker-waste-almost-full": "Waste container almost full",
+  "developer-empty": "Developer empty",
+  "opc-life-over": "Drum worn out",
+  "opc-near-eol": "Drum near end of life",
+  "fuser-over-temp": "Fuser too hot",
+  "fuser-under-temp": "Fuser too cold",
+  "offline": "Offline",
+  "shutdown": "Powered down",
+  "spool-area-full": "Spool full",
+  "connecting-to-device": "Connecting",
+  "timed-out": "Timed out",
+  "paused": "Paused",
+  "moving-to-paused": "Pausing",
+  "stopping": "Stopping",
+  "stopped-partly": "Partly stopped",
+  "cups-missing-filter": "Missing printer driver",
+  "cups-insecure-filter": "Insecure printer driver"
+}
+
+// Job reasons that describe healthy progress. These must produce no text at
+// all: a queue where every row carries an explanation teaches the user to stop
+// reading them, and then the one row that matters gets skipped too.
+var BENIGN_JOB_REASONS = [
+  "none", "", "job-printing", "job-queued", "job-incoming", "job-outgoing",
+  "job-queued-for-marker", "job-transforming", "job-interpreting",
+  "job-completed-successfully", "job-restartable", "job-streaming"
+]
+
+var JOB_REASON_TEXT = {
+  "printer-stopped": "Printer stopped",
+  "printer-stopped-partly": "Printer partly stopped",
+  "resources-are-not-ready": "Waiting for the printer",
+  "job-hold-until-specified": "Held until a scheduled time",
+  "cups-held-for-authentication": "Needs authentication",
+  "job-password-wait": "Needs a password",
+  "job-data-insufficient": "Waiting for data",
+  "document-format-error": "Document format error",
+  "unsupported-document-format": "Unsupported document format",
+  "unsupported-compression": "Unsupported compression",
+  "compression-error": "Compression error",
+  "document-access-error": "Cannot read the document",
+  "service-off-line": "Printer offline",
+  "submission-interrupted": "Submission interrupted",
+  "aborted-by-system": "Aborted by the system",
+  "job-canceled-by-operator": "Cancelled by an operator",
+  "job-canceled-at-device": "Cancelled at the printer",
+  "job-completed-with-errors": "Finished with errors",
+  "job-completed-with-warnings": "Finished with warnings",
+  "job-suspended": "Suspended",
+  "job-fetchable": "Waiting to be fetched"
+}
 
 var SEVERITY_SUFFIXES = ["-report", "-warning", "-error"]
 
@@ -81,6 +165,16 @@ function isErrorReason(reason) {
   return false
 }
 
+function isWarnReason(reason) {
+  var text = String(reason || "")
+  if (!text || text === "none") return false
+  var base = baseReason(text)
+  for (var i = 0; i < WARN_REASONS.length; i++) {
+    if (WARN_REASONS[i] === base || WARN_REASONS[i] === text) return true
+  }
+  return false
+}
+
 function printerHasError(printer) {
   if (!printer) return false
   if (printer.state === "stopped") return true
@@ -93,10 +187,87 @@ function printerHasError(printer) {
   return false
 }
 
+// Warnings yield to errors, matching galley_normalize.has_warning: a printer
+// reporting both must colour once, at the higher severity.
+function printerHasWarning(printer) {
+  if (!printer || printerHasError(printer)) return false
+  var reasons = printer.stateReasons || []
+  for (var i = 0; i < reasons.length; i++) {
+    if (isWarnReason(reasons[i])) return true
+  }
+  return false
+}
+
 function printerColor(printer, fallback) {
   if (printerHasError(printer)) return COLOR_ERROR
+  if (printerHasWarning(printer)) return COLOR_WARN
   if (printer && printer.state === "printing") return COLOR_BUSY
   return fallback
+}
+
+// A keyword nobody mapped, made readable: strip the severity suffix and let the
+// dashes become spaces. "brother-drum-shifted-warning" -> "Brother drum shifted".
+function humanizeReason(reason) {
+  var base = baseReason(String(reason || "")).replace(/-/g, " ").trim()
+  if (!base) return ""
+  return base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+function reasonPhrases(reasons, vocabulary) {
+  var out = []
+  var list = reasons || []
+  for (var i = 0; i < list.length; i++) {
+    var text = String(list[i] || "")
+    if (!text || text === "none") continue
+    var base = baseReason(text)
+    var mapped = vocabulary[base] || vocabulary[text]
+    var phrase = mapped || humanizeReason(text)
+    if (phrase && out.indexOf(phrase) === -1) out.push(phrase)
+  }
+  return out
+}
+
+// What to show under a printer's name. The backend's own message wins when it
+// exists -- it is written for humans and often names the specific tray -- then
+// the reasons, then the bare state. The middle step is the one the panel used
+// to skip, which is why an empty stateMessage left a stopped printer with no
+// explanation anywhere the user was still looking.
+function reasonText(printer) {
+  if (!printer) return ""
+  if (printer.stateMessage) return printer.stateMessage
+  var phrases = reasonPhrases(printer.stateReasons, REASON_TEXT)
+  if (phrases.length) return phrases.join(" · ")
+  return printer.state || ""
+}
+
+// Why a job is not moving, or "" while it is moving fine.
+function jobReasonText(job) {
+  if (!job) return ""
+  var list = job.stateReasons || []
+  var interesting = []
+  for (var i = 0; i < list.length; i++) {
+    if (BENIGN_JOB_REASONS.indexOf(String(list[i] || "")) === -1) {
+      interesting.push(list[i])
+    }
+  }
+  return reasonPhrases(interesting, JOB_REASON_TEXT).join(" · ")
+}
+
+// The single most severe thing worth naming in one line, for the bar tooltip.
+function worstFault(snapshot) {
+  var printers = (snapshot && snapshot.printers) || []
+  var i
+  for (i = 0; i < printers.length; i++) {
+    if (printerHasError(printers[i])) {
+      return printers[i].name + ": " + reasonText(printers[i])
+    }
+  }
+  for (i = 0; i < printers.length; i++) {
+    if (printerHasWarning(printers[i])) {
+      return printers[i].name + ": " + reasonText(printers[i])
+    }
+  }
+  return ""
 }
 
 function jobGlyph(state) {
@@ -175,6 +346,7 @@ function barSeverity(snapshot) {
   if (snapshot.cupsd === "error") return "error"
   var summary = snapshot.summary || {}
   if (summary.errorPrinters > 0) return "error"
+  if (summary.warnPrinters > 0) return "warn"
   if (summary.lowSupplies > 0) return "warn"
 
   var jobs = snapshot.jobs || []
@@ -229,7 +401,16 @@ function tooltipText(snapshot) {
   }
 
   parts.push(plural(summary.activeJobs || 0, "job"))
-  if (summary.errorPrinters > 0) parts.push(plural(summary.errorPrinters, "error"))
+
+  // Name the fault rather than counting it. "1 error" told the user something
+  // was wrong without saying what, which sent them looking at the network while
+  // the printer was out of paper. The count still appears when more than one
+  // printer is affected, so nothing is hidden by naming only the worst.
+  var fault = worstFault(snapshot)
+  if (fault) {
+    var affected = (summary.errorPrinters || 0) + (summary.warnPrinters || 0)
+    parts.push(affected > 1 ? fault + " (+" + (affected - 1) + " more)" : fault)
+  }
   return parts.join(" · ")
 }
 
@@ -330,8 +511,10 @@ function diffSnapshots(prev, next, options) {
         printerHasError(printer) && !printerHasError(previous)) {
       events.push({
         type: "printer-error", urgency: "critical", title: "Printer error",
-        message: printer.name + ": " +
-          (printer.stateMessage || (printer.stateReasons || []).join(", ") || "stopped"),
+        // reasonText rather than a private fallback chain: this path was the
+        // only one that explained a fault, and the card's divergence from it
+        // is what left "stopped" as the only thing on screen.
+        message: printer.name + ": " + (reasonText(printer) || "stopped"),
         key: "printer/" + printer.name
       })
     }
@@ -363,10 +546,23 @@ function diffSnapshots(prev, next, options) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    // QML sees every top-level var through the namespace import, so Panel.qml
+    // can reach these without help. Node only sees this object, and a test that
+    // hardcodes "#eab308" would pass while the palette moved underneath it.
+    COLOR_OK: COLOR_OK,
+    COLOR_WARN: COLOR_WARN,
+    COLOR_ERROR: COLOR_ERROR,
+    COLOR_BUSY: COLOR_BUSY,
     EMPTY_SNAPSHOT: EMPTY_SNAPSHOT,
     parseSnapshot: parseSnapshot,
     printerHasError: printerHasError,
     isErrorReason: isErrorReason,
+    isWarnReason: isWarnReason,
+    printerHasWarning: printerHasWarning,
+    reasonText: reasonText,
+    jobReasonText: jobReasonText,
+    worstFault: worstFault,
+    humanizeReason: humanizeReason,
     printerColor: printerColor,
     jobGlyph: jobGlyph,
     formatSize: formatSize,
