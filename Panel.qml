@@ -69,7 +69,26 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  WidgetButton {
+  // No openPanelIndicatorWidth hint on purpose. Bar.qml would accept one, and
+  // panels/power sets it, but hinting the mark to the glyph's ink shortens it
+  // from 15px to ~12px without moving it -- tried on a dev deploy and rejected
+  // on looks. The mark's length is a separate question from its alignment.
+
+  // BarIconButton, not WidgetButton: it paints the glyph through OpticalGlyph,
+  // which centres on the painted ink instead of the monospace advance cell.
+  // Every Nerd Font icon overflows that cell to the right (U+F042A: 11px of ink
+  // in a 7.8px cell), so a raw WidgetButton label sits ~1.6px right of its slot
+  // centre while Bar.qml centres the open-panel mark on the slot itself -- the
+  // misalignment in #19, measured at 2.5px on a 1.6x display. WidgetButton is
+  // for text labels; every other icon-only widget in the bar (audio, power,
+  // network, tray, ...) already uses BarIconButton. It extends WidgetButton, so
+  // bar/text/foreground/tooltipText/onPressed carry over unchanged.
+  //
+  // fixedWidth and fixedHeight are deliberately absent now: BarIconButton sets
+  // them from Style.bar.iconSlot, whose default is the same 27 this hardcoded --
+  // except it honours a theme's icon-slot, icon-canvas and icon-font tokens,
+  // which the hardcoded value silently ignored.
+  BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
@@ -85,8 +104,6 @@ Panel {
       // neighbouring widget for legibility except this one.
       return root.barForeground
     }
-    fixedWidth: root.bar && root.bar.vertical ? -1 : Style.space(27)
-    fixedHeight: root.bar && root.bar.vertical ? Style.space(26) : -1
     tooltipText: Model.tooltipText(controller.statusSnapshot())
     onPressed: function (which) {
       if (which === Qt.MiddleButton) { controller.refresh(); return }
@@ -116,12 +133,15 @@ Panel {
       // one badgeLabel below uses for its text.
       borderSpec: Border.flat(Color.background, 1)
 
-      // WidgetButton centers its label, and exposes labelWidth precisely so
-      // bar chrome can line up with the painted text instead of the slot.
-      // Half the label width right of center is the glyph's right edge; half
-      // a font-size above center is its top. The badge straddles that corner.
+      // glyphPaintedWidth, not labelWidth: BarIconButton hides WidgetButton's
+      // own label (labelVisible: false) and paints through OpticalGlyph, so
+      // labelWidth is 0 here and the badge would collapse onto the glyph's
+      // centre. glyphPaintedWidth is the ink width, which is what this wants
+      // anyway -- half of it right of centre is the painted glyph's right edge;
+      // half a font-size above centre is its top. The badge straddles that
+      // corner.
       anchors.horizontalCenter: parent.horizontalCenter
-      anchors.horizontalCenterOffset: button.labelWidth / 2
+      anchors.horizontalCenterOffset: button.glyphPaintedWidth / 2
       anchors.verticalCenter: parent.verticalCenter
       anchors.verticalCenterOffset: -button.fontSize * 0.5
 
