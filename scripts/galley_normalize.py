@@ -154,19 +154,61 @@ ERROR_REASONS = frozenset([
     "media-jam", "media-empty", "media-needed", "toner-empty",
     "marker-supply-empty", "offline", "offline-report", "door-open", "cover-open",
     "input-tray-missing", "output-area-full", "shutdown",
+    # Each of these stalls the queue in practice while leaving printer-state
+    # reachable as idle on some backends, so without them a stuck queue could
+    # sit behind a green glyph.
+    "interlock-open", "output-tray-missing", "fuser-over-temp",
+    "fuser-under-temp", "opc-life-over", "developer-empty", "marker-waste-full",
+    "spool-area-full", "cups-missing-filter",
 ])
+
+# Reasons that are worth saying out loud before they become errors. Same
+# suffix-stripping rules. Deliberately excluded: toner-low, marker-supply-low
+# and developer-low, which low_supplies already reports from marker-levels
+# against a threshold the user can tune -- listing them here would warn twice
+# for one condition, the second time at a fixed threshold.
+WARN_REASONS = frozenset([
+    "media-low", "output-area-almost-full", "marker-waste-almost-full",
+    "opc-near-eol",
+])
+
+
+def _base_reason(reason):
+    """A reason with its IPP severity suffix removed.
+
+    Reasons arrive as 'media-empty', 'media-empty-warning' or
+    'media-empty-error' depending on how the printer rates the same condition,
+    and all of them mean the paper tray is empty.
+    """
+    text = str(reason)
+    return text.rsplit("-", 1)[0] if text.endswith(
+        ("-report", "-warning", "-error")) else text
+
+
+def _matches(printer, vocabulary):
+    for reason in printer.get("stateReasons", []):
+        if _base_reason(reason) in vocabulary or str(reason) in vocabulary:
+            return True
+    return False
 
 
 def has_error(printer):
     if printer.get("state") == "stopped":
         return True
-    for reason in printer.get("stateReasons", []):
-        # Reasons carry severity suffixes: 'media-empty-warning'.
-        base = str(reason).rsplit("-", 1)[0] if str(reason).endswith(
-            ("-report", "-warning", "-error")) else str(reason)
-        if base in ERROR_REASONS or str(reason) in ERROR_REASONS:
-            return True
-    return False
+    return _matches(printer, ERROR_REASONS)
+
+
+def has_warning(printer):
+    """A warning only when nothing worse is true.
+
+    Severity is a ladder, not a set: summary.warnPrinters and errorPrinters are
+    summed independently, so a printer reporting both media-low and media-jam
+    must appear in exactly one of them or the panel reports two faults for one
+    printer.
+    """
+    if has_error(printer):
+        return False
+    return _matches(printer, WARN_REASONS)
 
 
 def low_supplies(printer, threshold):
@@ -190,6 +232,7 @@ def summarize(printers, jobs, threshold):
         "printers": len(printers),
         "activeJobs": len(jobs),
         "errorPrinters": sum(1 for p in printers if has_error(p)),
+        "warnPrinters": sum(1 for p in printers if has_warning(p)),
         "lowSupplies": sum(len(low_supplies(p, threshold)) for p in printers),
     }
 

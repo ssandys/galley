@@ -433,3 +433,111 @@ test("a snapshot in the error state produces no notifications", () => {
   const after = Model.parseSnapshot("garbage")
   assert.deepEqual(Model.diffSnapshots(before, after, ALL_ON), [])
 })
+
+// --- Explaining faults, not just flagging them -------------------------------
+// A printer that ran out of paper showed a coloured glyph and the word
+// "stopped", because the card's fallback chain skipped stateReasons while the
+// notification path did not. The reason was in the snapshot the whole time.
+
+test("reasonText names the fault when the backend leaves stateMessage empty", () => {
+  const printer = { name: "p", state: "stopped", stateMessage: "",
+                    stateReasons: ["media-empty-error"] }
+  const text = Model.reasonText(printer)
+  assert.match(text, /out of paper/i)
+  assert.notEqual(text, "stopped")
+})
+
+test("reasonText prefers the backend's own message when there is one", () => {
+  const printer = { name: "p", state: "stopped",
+                    stateMessage: "Load paper into Tray 1",
+                    stateReasons: ["media-empty-error"] }
+  assert.equal(Model.reasonText(printer), "Load paper into Tray 1")
+})
+
+test("reasonText joins multiple reasons", () => {
+  const printer = { name: "p", state: "stopped", stateMessage: "",
+                    stateReasons: ["cover-open", "media-empty"] }
+  const text = Model.reasonText(printer)
+  assert.match(text, /cover open/i)
+  assert.match(text, /out of paper/i)
+})
+
+test("reasonText falls back to the state when there is nothing to explain", () => {
+  const printer = { name: "p", state: "idle", stateMessage: "",
+                    stateReasons: ["none"] }
+  assert.equal(Model.reasonText(printer), "idle")
+})
+
+test("reasonText makes an unmapped reason readable rather than dropping it", () => {
+  // Vendors ship reasons outside the IPP registry. An unknown keyword must
+  // still reach the user -- badly worded beats invisible, which is the whole
+  // bug this feature exists to fix.
+  const printer = { name: "p", state: "stopped", stateMessage: "",
+                    stateReasons: ["brother-drum-shifted-warning"] }
+  const text = Model.reasonText(printer)
+  assert.match(text, /brother drum shifted/i)
+  assert.doesNotMatch(text, /-warning/)
+})
+
+test("isWarnReason spans severity suffixes and excludes errors", () => {
+  for (const reason of ["media-low", "media-low-warning", "media-low-report",
+                        "marker-waste-almost-full", "output-area-almost-full"]) {
+    assert.equal(Model.isWarnReason(reason), true, reason)
+  }
+  for (const reason of ["none", "", "media-empty", "media-jam"]) {
+    assert.equal(Model.isWarnReason(reason), false, reason)
+  }
+})
+
+test("printerHasWarning yields to a real error on the same printer", () => {
+  const both = { state: "idle", stateReasons: ["media-low", "media-jam"] }
+  assert.equal(Model.printerHasError(both), true)
+  assert.equal(Model.printerHasWarning(both), false)
+})
+
+test("printerColor paints a warning amber and an error red", () => {
+  const warn = { state: "idle", stateReasons: ["media-low"] }
+  const error = { state: "idle", stateReasons: ["media-empty"] }
+  assert.equal(Model.printerColor(warn, "#ffffff"), Model.COLOR_WARN)
+  assert.equal(Model.printerColor(error, "#ffffff"), Model.COLOR_ERROR)
+})
+
+test("barSeverity warns when a printer reports a warning reason", () => {
+  const snapshot = {
+    cupsd: "running", printers: [], jobs: [],
+    summary: { printers: 1, activeJobs: 0, errorPrinters: 0,
+               warnPrinters: 1, lowSupplies: 0 }
+  }
+  assert.equal(Model.barSeverity(snapshot), "warn")
+})
+
+test("tooltipText names the worst fault instead of only counting it", () => {
+  const snapshot = {
+    cupsd: "running",
+    printers: [{ name: "Brother@Home", state: "stopped", stateMessage: "",
+                 stateReasons: ["media-empty-error"], supplies: [] }],
+    jobs: [],
+    summary: { printers: 1, activeJobs: 0, errorPrinters: 1,
+               warnPrinters: 0, lowSupplies: 0 }
+  }
+  const text = Model.tooltipText(snapshot)
+  assert.match(text, /Brother@Home/)
+  assert.match(text, /out of paper/i)
+})
+
+test("jobReasonText explains a job that is not moving", () => {
+  const job = { id: 7, state: "pending", stateReasons: ["printer-stopped"] }
+  assert.match(Model.jobReasonText(job), /printer stopped/i)
+})
+
+test("jobReasonText stays quiet while a job is progressing normally", () => {
+  for (const reason of ["none", "job-printing", "job-queued", "job-incoming"]) {
+    const job = { id: 7, state: "processing", stateReasons: [reason] }
+    assert.equal(Model.jobReasonText(job), "", reason)
+  }
+})
+
+test("jobReasonText handles a job with no reasons at all", () => {
+  assert.equal(Model.jobReasonText({ id: 7, state: "pending" }), "")
+  assert.equal(Model.jobReasonText(null), "")
+})
