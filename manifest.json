@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ssandys.galley",
   "name": "Galley",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "author": "Sean Sandys",
   "license": "MIT",
   "description": "CUPS printers and print queues in the bar: printer state, supply levels, the active queue, job control, and default-printer switching. Summon with: omarchy-shell shell toggle ssandys.galley",
