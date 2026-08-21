@@ -148,7 +148,7 @@ class SubprocessFailureTest(unittest.TestCase):
         # normally is (see test_failed_ipp_status_... above).
         body = (
             '#!/bin/sh\n'
-            'case "$5" in\n'
+            'case "$*" in\n'
             '  *get-printers*)\n'
             '    cat <<\'PLIST\'\n'
             '<?xml version="1.0" encoding="UTF-8"?>\n'

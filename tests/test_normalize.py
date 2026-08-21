@@ -59,17 +59,33 @@ class NoDestinationsTest(unittest.TestCase):
         }
         self.assertFalse(gn.no_destinations(result))
 
-    def test_not_found_without_status_message_is_not_benign(self):
+    def test_not_found_is_benign_even_without_a_status_message(self):
+        # The status code alone decides. cupsd localizes status-message, so
+        # requiring "No destinations" in it would have made this benign only
+        # for English installs -- see the comment on no_destinations().
         result = {
             "Successful": False,
             "StatusCode": "client-error-not-found",
             "ResponseAttributes": [{"attributes-charset": "utf-8"}],
         }
-        self.assertFalse(gn.no_destinations(result))
+        self.assertTrue(gn.no_destinations(result))
 
-    def test_missing_response_attributes_is_not_benign(self):
+    def test_not_found_is_benign_with_no_response_attributes_at_all(self):
         result = {"Successful": False, "StatusCode": "client-error-not-found"}
-        self.assertFalse(gn.no_destinations(result))
+        self.assertTrue(gn.no_destinations(result))
+
+    def test_a_translated_status_message_is_still_benign(self):
+        # The reason the message check had to go: this is what a German cupsd
+        # returns for the same healthy empty state.
+        result = {
+            "Successful": False,
+            "StatusCode": "client-error-not-found",
+            "ResponseAttributes": [
+                {"attributes-charset": "utf-8",
+                 "status-message": "Keine Ziele hinzugefügt."},
+            ],
+        }
+        self.assertTrue(gn.no_destinations(result))
 
 
 class AsListTest(unittest.TestCase):

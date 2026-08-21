@@ -43,17 +43,22 @@ def no_destinations(test_result):
     """Whether a failed request is cupsd's "no printers configured" reply.
 
     With zero printers, cupsd answers CUPS-Get-Printers with
-    client-error-not-found and status-message "No destinations added." — a
-    healthy empty state, not a fault. Only that exact reply is benign;
-    any other failure stays an error.
+    client-error-not-found — a healthy empty state, not a fault. Any other
+    status stays an error, and the caller applies this only to the printers
+    request, so a failing jobs request still raises.
+
+    The status code alone decides. cupsd's accompanying status-message reads
+    "No destinations added." on an English install, and matching that string
+    looks like useful extra narrowing until you notice cupsd localizes it: the
+    check would then hold only for English users, and the bug this function
+    exists to fix would come back for everyone else, in a way no English-locale
+    test can see. There is nothing else to narrow against anyway --
+    CUPS-Get-Printers names no target printer, so a local cupsd has no other
+    reason to report not-found.
     """
     if test_succeeded(test_result):
         return False
-    if str(test_result.get("StatusCode", "")) != "client-error-not-found":
-        return False
-    attrs = test_result.get("ResponseAttributes") or []
-    message = attrs[0].get("status-message", "") if attrs else ""
-    return "No destinations" in str(message)
+    return str(test_result.get("StatusCode", "")) == "client-error-not-found"
 
 
 def response_groups(test_result):
