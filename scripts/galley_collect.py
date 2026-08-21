@@ -175,6 +175,12 @@ def collect(threshold=15, want_completed=False):
             if not tests:
                 raise RuntimeError("ipptool returned no %s result" % label)
             if not gn.test_succeeded(tests[0]):
+                # With no printers configured, cupsd answers CUPS-Get-Printers
+                # with client-error-not-found and "No destinations added." —
+                # a healthy empty state, not a fault. Any other failure
+                # still surfaces as an error.
+                if label == "printers" and gn.no_destinations(tests[0]):
+                    continue
                 raise RuntimeError("ipptool %s request failed: %s"
                                    % (label, tests[0].get("StatusCode", "unknown")))
 

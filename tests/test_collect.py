@@ -141,6 +141,74 @@ class SubprocessFailureTest(unittest.TestCase):
         self.assertEqual(snapshot["cupsd"], "error")
         self.assertIsNotNone(snapshot["error"])
 
+    def test_empty_cups_is_a_running_snapshot_with_no_printers(self):
+        # cupsd answers CUPS-Get-Printers with client-error-not-found and
+        # "No destinations added." when no printers are configured. That is
+        # a healthy empty state, not the collector error a failed STATUS
+        # normally is (see test_failed_ipp_status_... above).
+        body = (
+            '#!/bin/sh\n'
+            'case "$5" in\n'
+            '  *get-printers*)\n'
+            '    cat <<\'PLIST\'\n'
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<plist version="1.0">\n'
+            '<dict>\n'
+            '<key>Tests</key>\n'
+            '<array>\n'
+            '<dict>\n'
+            '<key>Name</key><string>Get printers</string>\n'
+            '<key>StatusCode</key><string>client-error-not-found</string>\n'
+            '<key>Successful</key><false />\n'
+            '<key>ResponseAttributes</key>\n'
+            '<array>\n'
+            '<dict>\n'
+            '<key>attributes-charset</key><string>utf-8</string>\n'
+            '<key>status-message</key><string>No destinations added.</string>\n'
+            '</dict>\n'
+            '</array>\n'
+            '</dict>\n'
+            '</array>\n'
+            '</dict>\n'
+            '</plist>\n'
+            'PLIST\n'
+            '    ;;\n'
+            '  *)\n'
+            '    cat <<\'PLIST\'\n'
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<plist version="1.0">\n'
+            '<dict>\n'
+            '<key>Tests</key>\n'
+            '<array>\n'
+            '<dict>\n'
+            '<key>Name</key><string>Get active jobs</string>\n'
+            '<key>StatusCode</key><string>successful-ok</string>\n'
+            '<key>Successful</key><true />\n'
+            '<key>ResponseAttributes</key>\n'
+            '<array>\n'
+            '<dict>\n'
+            '<key>attributes-charset</key><string>utf-8</string>\n'
+            '</dict>\n'
+            '</array>\n'
+            '</dict>\n'
+            '</array>\n'
+            '</dict>\n'
+            '</plist>\n'
+            'PLIST\n'
+            '    ;;\n'
+            'esac\n'
+            'exit 0\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            proc, snapshot = self._run_with_path(self._fake_bin(tmp, body))
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(snapshot["cupsd"], "running")
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual(snapshot["printers"], [])
+        self.assertEqual(snapshot["jobs"], [])
+        self.assertEqual(snapshot["summary"]["printers"], 0)
+        self.assertEqual(snapshot["summary"]["activeJobs"], 0)
+
     def test_missing_ipptool_produces_an_error_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             # Only systemctl is faked; ipptool is absent from this dir, and we
