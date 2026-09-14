@@ -1,4 +1,4 @@
-# AGENTS.md — extending Galley
+# Galley architecture
 
 Galley is a CUPS bar widget for the Omarchy shell (Quickshell). This file is
 for an agent (or a human) changing the code, not installing it — see

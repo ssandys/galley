@@ -7,7 +7,7 @@ widget, `README.md` is the whole story.
 Two documents sit behind this one, and both are worth reading before a
 non-trivial change:
 
-- **`AGENTS.md`** — the layer map, the two load-bearing invariants (Python
+- **`ARCHITECTURE.md`** — the layer map, the two load-bearing invariants (Python
   stays stdlib-only; `Model.js` stays pure and QML-safe), and a catalogue of
   the traps that have already cost someone an hour.
 - **`docs/superpowers/specs/2026-08-08-galley-design.md`** — the
@@ -195,7 +195,7 @@ That runs the lot: `jq` manifest validation, `bash -n` on the shell scripts,
 Quickshell or Omarchy imports, so an unknown component, a typo'd property, or
 a reference to something that doesn't exist all pass silently. It tells you
 `Panel.qml` *parses*. QML correctness is verified by hand against the live
-shell — see the edit loop above. `AGENTS.md` has the full breakdown of what
+shell — see the edit loop above. `ARCHITECTURE.md` has the full breakdown of what
 each layer of the suite does and doesn't cover.
 
 ## Never edit `/usr/share/omarchy/`
