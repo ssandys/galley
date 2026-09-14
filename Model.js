@@ -299,6 +299,34 @@ function formatSize(sizeKb) {
   return (sizeKb / 1024).toFixed(1) + " MB"
 }
 
+// How long a job has been waiting, or "" when there is nothing to say.
+//
+// createdAt is UNIX epoch seconds. RFC 8011 defines time-at-creation against
+// the printer's own printer-up-time timescale, which would make it seconds
+// since the printer booted; CUPS ignores that and reports wall-clock epoch.
+// Confirmed against this machine's live cupsd before this was written -- do
+// not "fix" this into adding an uptime offset without re-checking.
+//
+// Truncates rather than rounds: 119 seconds is one minute of completed
+// waiting, and a queue column whose whole purpose is answering "is this
+// stuck?" must not overstate the wait it is reporting.
+function formatAge(createdAt, now) {
+  // A job with no time-at-creation normalizes to 0, and a panel that has not
+  // polled yet has no clock. Either one treated as a real number dates the
+  // job to 1970 and renders an age north of twenty thousand days.
+  if (!createdAt || !now) return ""
+  var elapsed = now - createdAt
+  // Under a minute says nothing at all. A freshly filled queue would
+  // otherwise put text on every row, which is how a column teaches you to
+  // stop reading it -- then the row that matters gets skipped with the rest.
+  // A negative age lands here too: the clock only advances on a successful
+  // poll, so a new snapshot can carry a job created after the last tick.
+  if (elapsed < 60) return ""
+  if (elapsed < 3600) return Math.floor(elapsed / 60) + "m"
+  if (elapsed < 86400) return Math.floor(elapsed / 3600) + "h"
+  return Math.floor(elapsed / 86400) + "d"
+}
+
 function supplyLabel(supply) {
   if (!supply) return ""
   var name = String(supply.name || "").toLowerCase()
@@ -599,6 +627,7 @@ if (typeof module !== "undefined") {
     printerColor: printerColor,
     jobGlyph: jobGlyph,
     formatSize: formatSize,
+    formatAge: formatAge,
     supplyLabel: supplyLabel,
     supplyColor: supplyColor,
     filterJobs: filterJobs,

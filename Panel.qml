@@ -637,6 +637,27 @@ Panel {
                 }
 
                 Text {
+                  // How long this job has been waiting. time-at-creation was
+                  // collected and normalized to createdAt from the start and
+                  // then read by nothing, so a job pending forty seconds and a
+                  // job pending forty minutes drew the same row -- and age is
+                  // the cheapest answer there is to "is this stuck, or did I
+                  // just hit print?".
+                  //
+                  // Blank under a minute and blank without a clock, same rule
+                  // as the reason column above: a queue where every row carries
+                  // text teaches you to stop reading the column, and then the
+                  // row that matters gets skipped with the rest.
+                  readonly property string age:
+                    Model.formatAge(modelData.createdAt, controller.nowSeconds)
+                  visible: age !== ""
+                  text: age
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Text {
                   text: modelData.pages
                     ? modelData.pages + "pg" : Model.formatSize(modelData.sizeKb)
                   color: root.dim
