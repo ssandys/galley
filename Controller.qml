@@ -11,10 +11,11 @@ import "Model.js" as Model
 // without scrolling past layout. In-tree precedent: the sibling colophon
 // plugin's Service.qml, split out from the start for this reason.
 //
-// The seam is narrow on purpose. Panel.qml reads seven properties from here
+// The seam is narrow on purpose. Panel.qml reads eight properties from here
 // (snapshot, cupsdState, collectorError, actionInProgress, actionError,
-// supplyThreshold, showSupplies) and calls three functions (refresh,
-// runAction, statusSnapshot). Everything else below is private machinery:
+// supplyThreshold, showSupplies, nowSeconds) and calls three functions
+// (refresh, runAction, statusSnapshot). Everything else below is private
+// machinery:
 // `dataVersion`, `previousSnapshot`, `armedSupplies`, `jobWasActive`,
 // `pendingRefresh`, `notifyQueue` and `actionExited` have no reader outside
 // this file, and that is the point of the split.
@@ -49,6 +50,19 @@ Item {
 
   property string actionInProgress: ""
   property string actionError: ""
+
+  // Clock for job ages, in UNIX epoch seconds to match the collector's
+  // createdAt. `real` rather than `int`: QML ints are 32-bit and epoch seconds
+  // pass 2^31 in 2038.
+  //
+  // Advanced only on a successful poll, alongside the snapshot it belongs to,
+  // for two reasons. A per-frame clock would re-evaluate every row's binding
+  // sixty times a second to change a number that moves once a minute. And
+  // freezing it with the content is the same last-known rule everything else
+  // here follows: while cupsd sleeps the panel says "showing last known
+  // state", so the ages shown must be the ones that state was drawn with
+  // rather than ticking on past a daemon that has stopped reporting.
+  property real nowSeconds: 0
 
   // Private machinery. No reader in Panel.qml.
   property bool actionExited: false
@@ -192,6 +206,7 @@ Item {
     if (next.cupsd === "running") {
       root.previousSnapshot = root.dataVersion > 0 ? root.snapshot : null
       root.snapshot = next
+      root.nowSeconds = Date.now() / 1000
       root.dataVersion++
       root.jobWasActive = (next.summary ? next.summary.activeJobs : 0) > 0
       root.dispatchNotifications()

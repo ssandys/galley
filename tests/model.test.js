@@ -584,3 +584,78 @@ test("jobReasonText handles a job with no reasons at all", () => {
   assert.equal(Model.jobReasonText({ id: 7, state: "pending" }), "")
   assert.equal(Model.jobReasonText(null), "")
 })
+
+// formatAge — galley#21. time-at-creation has been collected and normalized to
+// createdAt since v1 and read by nothing, so a job pending 40 seconds and a job
+// pending 40 minutes rendered identically in the queue.
+//
+// The unit is UNIX epoch seconds. RFC 8011 defines time-at-creation against the
+// printer's own printer-up-time timescale, which would make these numbers
+// seconds since the printer booted -- CUPS ignores that and reports wall-clock
+// epoch instead. Verified against this machine's live cupsd: job 83 reported
+// time-at-creation 1788532863, which decodes to 2026-09-04 10:41:03, and lpstat
+// independently timestamped that same job completing at 10:42:32. The tests
+// below are written in epoch seconds because that is what arrives.
+
+const HOUR = 3600
+const DAY = 86400
+
+test("formatAge says nothing about a job younger than a minute", () => {
+  // Deliberately empty rather than "0m". Every row in a freshly-filled queue
+  // would otherwise carry an age, which is exactly how a column teaches you
+  // to stop reading it -- the same reason jobReasonText renders nothing when
+  // there is nothing wrong.
+  const now = 1788532863
+  assert.equal(Model.formatAge(now, now), "")
+  assert.equal(Model.formatAge(now - 1, now), "")
+  assert.equal(Model.formatAge(now - 59, now), "")
+})
+
+test("formatAge counts minutes, then hours, then days", () => {
+  const now = 1788532863
+  assert.equal(Model.formatAge(now - 60, now), "1m")
+  assert.equal(Model.formatAge(now - 4 * 60, now), "4m")
+  assert.equal(Model.formatAge(now - 59 * 60, now), "59m")
+  assert.equal(Model.formatAge(now - HOUR, now), "1h")
+  assert.equal(Model.formatAge(now - 2 * HOUR, now), "2h")
+  assert.equal(Model.formatAge(now - 23 * HOUR, now), "23h")
+  assert.equal(Model.formatAge(now - DAY, now), "1d")
+  assert.equal(Model.formatAge(now - 3 * DAY, now), "3d")
+})
+
+test("formatAge truncates rather than rounding", () => {
+  // 119 seconds is one minute of completed waiting, not two. Rounding up
+  // would let a job that has been queued for 91 seconds claim "2m", which
+  // overstates the very thing this column exists to report honestly.
+  const now = 1788532863
+  assert.equal(Model.formatAge(now - 119, now), "1m")
+  assert.equal(Model.formatAge(now - (2 * HOUR - 1), now), "1h")
+  assert.equal(Model.formatAge(now - (DAY - 1), now), "23h")
+})
+
+test("formatAge renders a missing createdAt as nothing, not as 1970", () => {
+  // CUPS reports no time-at-creation for some jobs and galley_normalize
+  // defaults it to 0. Treated as a real timestamp that would render as the
+  // age of the UNIX epoch -- "20896d" and climbing.
+  const now = 1788532863
+  assert.equal(Model.formatAge(0, now), "")
+  assert.equal(Model.formatAge(null, now), "")
+  assert.equal(Model.formatAge(undefined, now), "")
+})
+
+test("formatAge says nothing when the clock is behind the job", () => {
+  // The clock advances only on a successful poll, so a snapshot can briefly
+  // carry a job created after the last tick. A negative age must not render
+  // as "-1m" or wrap into a large positive one.
+  const now = 1788532863
+  assert.equal(Model.formatAge(now + 30, now), "")
+  assert.equal(Model.formatAge(now + 5 * DAY, now), "")
+})
+
+test("formatAge says nothing when it has no clock to compare against", () => {
+  // nowSeconds starts at 0 in Controller.qml and is set on the first
+  // successful poll. Rows rendered before that must stay blank rather than
+  // dating every job to the epoch.
+  assert.equal(Model.formatAge(1788532863, 0), "")
+  assert.equal(Model.formatAge(1788532863, null), "")
+})
