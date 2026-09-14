@@ -57,9 +57,10 @@ at all, and that the change handler fires — are outside what `node --test` and
 running the same property structure under a standalone `qml` runtime.
 
 **Cross-language duplication now has a guard** — `tests/test_cross_language.py`,
-merged 2026-08-09. Covers all five crossings: `ERROR_REASONS`, state-name
+merged 2026-08-09. Covers all six crossings: `ERROR_REASONS`, state-name
 strings, the threshold default across seven declarations, the `waste-toner`
-exclusion, and the colour palette. The last two still have open issues
+exclusion, the colour palette, and the snapshot schema. The `waste-toner` and
+palette crossings still have open issues
 ([7](https://github.com/ssandys/galley/issues/7),
 [6](https://github.com/ssandys/galley/issues/6)) — the guard freezes the
 duplication, it does not remove it.
@@ -74,7 +75,17 @@ assertions, because a test that only checks "waste toner returns the fallback"
 is satisfied by an implementation that returns the fallback unconditionally.
 
 A guard that pattern-matches source text is guarding the text, not the
-behaviour. If you add a sixth crossing, execute it.
+behaviour. If you add a seventh crossing, execute it.
+
+The sixth crossing proved that rule the hard way before it got one. The
+snapshot schema gained `warnPrinters` in v0.5.0 and the three fallback
+literals in `Model.js` did not
+([26](https://github.com/ssandys/galley/issues/26)). It shipped unnoticed
+because every reader happened to be a `> 0` comparison and `undefined > 0`
+is quietly false — a text scrape for the field name would have found it in
+`summarize()` and called it covered. The guard runs `build_snapshot()` in
+Python and `parseSnapshot()` under `node`, and compares the key sets that
+come back.
 
 ## Documentation drift
 

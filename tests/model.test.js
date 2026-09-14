@@ -222,12 +222,55 @@ test("tooltipText describes retained content while cupsd sleeps", () => {
   assert.match(text, /2 jobs/)
 })
 
-test("tooltipText surfaces a retained error while cupsd sleeps", () => {
-  // barSeverity keeps the bar glyph red off retained errorPrinters while the
-  // daemon sleeps, so the tooltip has to explain the color it is sitting on.
-  const retained = { ...SNAPSHOT, cupsd: "asleep",
-    summary: { ...SNAPSHOT.summary, errorPrinters: 1 } }
-  assert.match(Model.tooltipText(retained), /1 error/)
+// The three tests below cover the asleep branch's fault clause. barSeverity
+// colors the glyph off retained errorPrinters/warnPrinters while the daemon
+// sleeps (Model.js barSeverity has no cupsd special case), so the tooltip is
+// the only surface that can explain the color it is sitting on.
+//
+// They assert on the fault *name*, not a count, for the reason the running
+// branch already records: "1 error" says something is wrong without saying
+// what, which is what sent a user looking at the network while the printer
+// was out of paper. A count is the same failure one tier down.
+
+function asleepWith(reasons, counts) {
+  // A retained fault has to be consistent to be worth asserting on: the
+  // summary counts come from Python's has_error/has_warning over these same
+  // stateReasons, so a test that raised a count without a matching reason
+  // would be exercising a snapshot the collector cannot produce.
+  return {
+    ...SNAPSHOT,
+    cupsd: "asleep",
+    printers: [
+      { ...SNAPSHOT.printers[0], state: "stopped", stateReasons: reasons },
+      SNAPSHOT.printers[1]
+    ],
+    summary: { ...SNAPSHOT.summary, ...counts }
+  }
+}
+
+test("tooltipText names a retained error while cupsd sleeps", () => {
+  const text = Model.tooltipText(asleepWith(["media-empty"], { errorPrinters: 1 }))
+  assert.match(text, /idle/i)
+  assert.match(text, /Brother@Home: Out of paper/)
+})
+
+test("tooltipText names a retained warning while cupsd sleeps", () => {
+  // galley#27: the glyph goes amber off warnPrinters, and before this the
+  // asleep branch pushed errorPrinters only -- so the tooltip stayed silent
+  // about the one thing that explained the color.
+  const text = Model.tooltipText(asleepWith(["media-low"], { warnPrinters: 1 }))
+  assert.match(text, /idle/i)
+  assert.match(text, /Brother@Home: Paper low/)
+})
+
+test("tooltipText still suppresses a retained printing state while asleep", () => {
+  // Control for the two above. Naming a retained *fault* is honest -- paper
+  // that was low when cupsd went to sleep is still low -- but a retained
+  // *printing* state is not: a sleeping daemon prints nothing. The asleep
+  // branch must keep dropping the "<name> printing" clause while it gains
+  // the fault clause, or this fix quietly reintroduces that lie.
+  const text = Model.tooltipText(asleepWith(["media-low"], { warnPrinters: 1 }))
+  assert.doesNotMatch(text, /printing/)
 })
 
 const ALL_ON = {
