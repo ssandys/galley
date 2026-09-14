@@ -379,6 +379,122 @@ class WasteTonerExclusionTest(unittest.TestCase):
             'diffSnapshots raised %r supply-low events for an "other"-typed '
             "marker crossing the threshold, expected 1" % (out["otherEvents"],),
         )
+NODE_SNAPSHOT_SCHEMA_SCRIPT = """
+var Model = require(%s);
+var out = {};
+
+// The three fallback snapshot literals, reached the way the panel reaches
+// them. emptySnapshot() is not exported, so parseSnapshot("") stands in for
+// it -- that input is exactly the branch that calls it.
+out.constant = Object.keys(Model.EMPTY_SNAPSHOT);
+out.constantSummary = Object.keys(Model.EMPTY_SNAPSHOT.summary);
+
+var factory = Model.parseSnapshot("");
+out.factory = Object.keys(factory);
+out.factorySummary = Object.keys(factory.summary);
+
+// "{}" parses cleanly but carries no summary, so this is the one input that
+// exercises parseSnapshot's own backfill literal rather than either of the
+// two above.
+var fallback = Model.parseSnapshot("{}");
+out.fallbackSummary = Object.keys(fallback.summary);
+
+// Each backfill must mint a fresh object. Sharing one would let any later
+// mutation of a parsed snapshot corrupt the exported constant -- the hazard
+// the comment above that literal in Model.js already names.
+var again = Model.parseSnapshot("{}");
+out.freshSummary = (fallback.summary !== again.summary)
+  && (fallback.summary !== Model.EMPTY_SNAPSHOT.summary);
+
+process.stdout.write(JSON.stringify(out));
+""" % json.dumps(MODEL_JS_PATH)
+
+
+class SnapshotSchemaParityTest(unittest.TestCase):
+    """Model.js's fallback snapshots must carry the keys Python emits.
+
+    galley_normalize.build_snapshot() defines the snapshot schema; Model.js
+    restates it three times as all-zero fallbacks. That is the sixth
+    hand-duplicated crossing between the two languages, and it arrived
+    without a guard -- docs/FOLLOWUPS.md says to execute the sixth one when
+    it shows up, so this is it.
+
+    It failed silently exactly as predicted: `warnPrinters` shipped in
+    summarize() in v0.5.0 and never reached any of the three literals
+    (galley#26). Nothing broke, because `undefined > 0` is false and every
+    reader happened to be a comparison -- but the first reader to sum,
+    format, or count that field off a fallback snapshot would have got a
+    wrong answer with nothing to catch it.
+
+    Both halves execute. Python calls the real build_snapshot(); the
+    JavaScript half shells out to node (already a project test dependency)
+    and reads the key sets off real return values rather than scraping the
+    source for field names. A literal that still *mentions* warnPrinters in
+    a comment while dropping it from the object would satisfy a text scrape
+    and fail here, which is the whole lesson of the waste-toner guard above.
+    """
+
+    @unittest.skipUnless(
+        shutil.which("node"), "node is required to verify Model.js behaviour"
+    )
+    def test_javascript_fallback_snapshots_match_the_python_schema(self):
+        snapshot = gn.build_snapshot()
+        python_keys = set(snapshot)
+        python_summary = set(snapshot["summary"])
+
+        # Floor, not decoration: an empty set on either side would make every
+        # assertEqual below pass against nothing at all.
+        self.assertIn(
+            "summary", python_keys,
+            "build_snapshot() no longer returns a summary -- this guard is "
+            "comparing something other than the snapshot schema",
+        )
+        self.assertGreaterEqual(
+            len(python_summary), 4,
+            "only found %r in build_snapshot()'s summary -- suspiciously few "
+            "for a dict that drives the bar glyph, badge, and tooltip"
+            % (sorted(python_summary),),
+        )
+
+        result = subprocess.run(
+            ["node", "-e", NODE_SNAPSHOT_SCHEMA_SCRIPT],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            "node failed to execute Model.js: %s" % result.stderr,
+        )
+        out = json.loads(result.stdout)
+
+        # Every summary literal, including parseSnapshot's own backfill.
+        for where in ("constantSummary", "factorySummary", "fallbackSummary"):
+            self.assertEqual(
+                set(out[where]), python_summary,
+                "%s in Model.js does not match the keys "
+                "galley_normalize.summarize() emits: %r vs %r"
+                % (where, sorted(out[where]), sorted(python_summary)),
+            )
+
+        # Top-level keys, for the two paths that build a whole snapshot.
+        # parseSnapshot's backfill is deliberately not checked here: given a
+        # parsed object it fills in printers/jobs/summary only, and leaving
+        # the collector's own top-level fields alone is the point of it.
+        for where in ("constant", "factory"):
+            self.assertEqual(
+                set(out[where]), python_keys,
+                "%s in Model.js does not match the top-level keys "
+                "galley_normalize.build_snapshot() emits: %r vs %r"
+                % (where, sorted(out[where]), sorted(python_keys)),
+            )
+
+        self.assertTrue(
+            out["freshSummary"],
+            "parseSnapshot handed back a shared summary object rather than a "
+            "fresh one -- a later mutation of a parsed snapshot can now "
+            "corrupt Model.EMPTY_SNAPSHOT",
+        )
+
+
 class ColorPaletteTest(unittest.TestCase):
     """No *.qml file may contain a hex colour literal at all.
 

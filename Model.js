@@ -12,17 +12,36 @@ var COLOR_BUSY = "#3b82f6"
 // exact figure stays available in the tooltip.
 var BADGE_MAX = 9
 
+// Mirrors the keys galley_normalize.summarize() emits — the two MUST agree,
+// and are executed against each other by tests/test_cross_language.py.
+//
+// One factory rather than three literals, because three drifted: warnPrinters
+// shipped in the collector in v0.5.0 and reached none of them (galley#26).
+// Nothing broke, which is the problem — every reader happened to be a `> 0`
+// comparison, and `undefined > 0` is quietly false. The first reader to sum or
+// format that field off a fallback snapshot would have got a wrong answer.
+//
+// A function, not a shared constant: each caller needs an object of its own,
+// or a later mutation of one parsed snapshot corrupts the exported
+// EMPTY_SNAPSHOT that every other caller falls back to.
+function emptySummary() {
+  return {
+    printers: 0, activeJobs: 0, errorPrinters: 0, warnPrinters: 0,
+    lowSupplies: 0
+  }
+}
+
 var EMPTY_SNAPSHOT = {
   schema: 1, cupsd: "error", error: null, defaultPrinter: "",
   printers: [], jobs: [],
-  summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 }
+  summary: emptySummary()
 }
 
 function emptySnapshot(errorText) {
   return {
     schema: 1, cupsd: "error", error: errorText || null, defaultPrinter: "",
     printers: [], jobs: [],
-    summary: { printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0 }
+    summary: emptySummary()
   }
 }
 
@@ -35,13 +54,10 @@ function parseSnapshot(raw) {
     }
     if (!parsed.printers) parsed.printers = []
     if (!parsed.jobs) parsed.jobs = []
-    if (!parsed.summary) {
-      // A fresh object, never the shared EMPTY_SNAPSHOT.summary — aliasing it
-      // lets any later mutation corrupt the exported fallback constant.
-      parsed.summary = {
-        printers: 0, activeJobs: 0, errorPrinters: 0, lowSupplies: 0
-      }
-    }
+    // emptySummary() mints a fresh object every call, which is what this
+    // needs: assigning the shared EMPTY_SNAPSHOT.summary would let any later
+    // mutation of the parsed snapshot corrupt the exported fallback constant.
+    if (!parsed.summary) parsed.summary = emptySummary()
     return parsed
   } catch (err) {
     return emptySnapshot("could not parse collector output: " + err)
@@ -369,6 +385,21 @@ function plural(count, word) {
   return count + " " + word + (count === 1 ? "" : "s")
 }
 
+// Name the fault rather than counting it. "1 error" told the user something
+// was wrong without saying what, which sent them looking at the network while
+// the printer was out of paper. The count still appears when more than one
+// printer is affected, so nothing is hidden by naming only the worst.
+//
+// Shared by both of tooltipText's branches. The asleep branch has exactly the
+// same job — explaining the colour barSeverity painted — and did it by
+// counting errors alone until galley#27.
+function appendFault(parts, snapshot, summary) {
+  var fault = worstFault(snapshot)
+  if (!fault) return
+  var affected = (summary.errorPrinters || 0) + (summary.warnPrinters || 0)
+  parts.push(affected > 1 ? fault + " (+" + (affected - 1) + " more)" : fault)
+}
+
 function tooltipText(snapshot) {
   if (!snapshot) return "Printers"
 
@@ -383,9 +414,19 @@ function tooltipText(snapshot) {
     if ((snapshot.printers || []).length === 0) return "CUPS idle — nothing queued"
     // No "<name> printing" clause here: a sleeping daemon is printing
     // nothing, so a retained printing state must not be reported as current.
+    //
+    // A retained *fault* is not stale in that way, and is reported: paper that
+    // was low when cupsd went to sleep is still low. That distinction is the
+    // whole reason one retained field is named here and another suppressed.
     var idle = [plural(summary.printers || 0, "printer"),
                 plural(summary.activeJobs || 0, "job")]
-    if (summary.errorPrinters > 0) idle.push(plural(summary.errorPrinters, "error"))
+    // barSeverity colors the glyph off retained errorPrinters/warnPrinters
+    // with no cupsd special case, so this is the only surface that can say
+    // why it is red or amber. It used to push "1 error" and nothing at all
+    // for the warning tier (galley#27), which left an amber glyph beside a
+    // tooltip that never mentioned a warning. See appendFault for why a
+    // count would not have been enough on its own.
+    appendFault(idle, snapshot, summary)
     return "CUPS idle — last known: " + idle.join(" · ")
   }
   if (snapshot.cupsd === "error") return snapshot.error || "Collector failed"
@@ -402,15 +443,7 @@ function tooltipText(snapshot) {
 
   parts.push(plural(summary.activeJobs || 0, "job"))
 
-  // Name the fault rather than counting it. "1 error" told the user something
-  // was wrong without saying what, which sent them looking at the network while
-  // the printer was out of paper. The count still appears when more than one
-  // printer is affected, so nothing is hidden by naming only the worst.
-  var fault = worstFault(snapshot)
-  if (fault) {
-    var affected = (summary.errorPrinters || 0) + (summary.warnPrinters || 0)
-    parts.push(affected > 1 ? fault + " (+" + (affected - 1) + " more)" : fault)
-  }
+  appendFault(parts, snapshot, summary)
   return parts.join(" · ")
 }
 
