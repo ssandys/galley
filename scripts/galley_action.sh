@@ -76,8 +76,33 @@ if [[ "$DETACH" == "1" ]]; then
   exit 0
 fi
 
+# A refusal is not a malfunction and must not read like one. cupsdisable and
+# cupsenable are IPP admin operations: where the user is not in a group cupsd
+# accepts, both fail with client-error-forbidden, and relaying that string
+# verbatim made a permission that was never granted look like a broken widget
+# (galley#31). Naming it is the rule the panel already follows for printer
+# faults -- say what is wrong, not merely that something is.
+#
+# Matched on the IPP status keyword, never the prose around it. cupsd localizes
+# "Operation failed:" and leaves the keyword alone, so matching the message
+# would hold only for English installs and would fail invisibly to every test
+# in this repo. PR #20 hit exactly that with "No destinations".
+#
+# The keyword stays in what we print. It is the searchable part, and dropping
+# it is the same mistake as hiding a printer-state-reason we have no phrase
+# for. This explains the refusal; it does not grant anything.
 if ! output=$("${CMD[@]}" 2>&1); then
-  echo "galley: ${ACTION} failed: ${output}" >&2
+  case "$output" in
+    *client-error-forbidden*)
+      echo "galley: ${ACTION} needs printer admin rights (client-error-forbidden)" >&2
+      ;;
+    *client-error-not-authorized*)
+      echo "galley: ${ACTION} needs authentication (client-error-not-authorized)" >&2
+      ;;
+    *)
+      echo "galley: ${ACTION} failed: ${output}" >&2
+      ;;
+  esac
   exit 1
 fi
 

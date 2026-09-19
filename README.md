@@ -182,6 +182,29 @@ If it reports `inactive` and printing still works, this is expected — cupsd
 will restart itself on the next real print job or IPP request. If it
 reports `failed`, that's a real problem outside Galley's scope.
 
+**Pause or resume says it "needs printer admin rights".** Pausing and resuming
+a queue are IPP *admin* operations, unlike cancelling your own jobs. cupsd only
+accepts them from a member of the group named by `SystemGroup` in
+`/etc/cups/cups-files.conf`, and refuses everyone else with
+`client-error-forbidden`. Galley reports the refusal but cannot grant the
+permission. Check which group is required, and whether you are in it:
+
+```bash
+sudo grep -i '^SystemGroup' /etc/cups/cups-files.conf
+id -nG
+```
+
+If your user isn't listed, add it to that group and log back in (a new group
+takes effect on your next login, not immediately):
+
+```bash
+sudo usermod -aG <the-group-SystemGroup-names> "$USER"
+```
+
+Cancel, set default, and the web UI are unaffected — none of them is an admin
+operation. `set default` in particular writes your own `~/.cups/lpoptions` and
+never needs a password.
+
 **Something looks wrong and you want to see the raw data.** Run the
 collector directly — it's a standalone script, no widget required:
 
@@ -197,6 +220,8 @@ read it formatted.
 ## Known limitations
 
 - Cancel is restricted to your own jobs by `_user_cancel_any=0`.
+- Pause and resume need CUPS admin rights; without them Galley can report
+  the refusal but not perform the action (see Troubleshooting).
 - Page counts are unavailable for pending jobs; size is shown instead.
 - Waste-toner levels are displayed without interpretation.
 - Local cupsd only. Remote `CUPS_SERVER` is out of scope.
