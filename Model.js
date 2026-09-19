@@ -275,13 +275,60 @@ function reasonPhrases(reasons, vocabulary) {
   return out
 }
 
-// What to show under a printer's name. The backend's own message wins when it
-// exists -- it is written for humans and often names the specific tray -- then
-// the reasons, then the bare state. The middle step is the one the panel used
-// to skip, which is why an empty stateMessage left a stopped printer with no
-// explanation anywhere the user was still looking.
+// The reasons a printer is in trouble, as opposed to every reason it reports.
+// A pause is excluded deliberately: it is not a fault (galley#35), and
+// "Paused" says less than whatever an operator typed into `cupsdisable -r`.
+function namedFaults(printer) {
+  var reasons = (printer && printer.stateReasons) || []
+  var out = []
+  for (var i = 0; i < reasons.length; i++) {
+    if (isPauseReason(reasons[i])) continue
+    if (isErrorReason(reasons[i]) || isWarnReason(reasons[i])) out.push(reasons[i])
+  }
+  return out
+}
+
+// Join the vocabulary's name for a fault to the backend's own message, without
+// saying the same thing twice. Three outcomes: the message adds nothing the
+// phrase already said, the message says the phrase and more, or the two are
+// different and both are worth reading.
+function combineFault(named, message) {
+  var text = String(message || "")
+  if (!text) return named
+  var a = named.toLowerCase()
+  var b = text.toLowerCase()
+  if (a.indexOf(b) !== -1) return named
+  if (b.indexOf(a) !== -1) return text
+  return named + " — " + text
+}
+
+// What to show under a printer's name, from two sources that disagree about
+// which one is authoritative.
+//
+// printer-state-message is free text the backend owns. It is written for
+// humans and often names the specific tray, which the reason vocabulary cannot
+// -- so where nothing is wrong, or where the only reason is an administrative
+// pause, it is the better line and wins outright.
+//
+// It is also free text the backend, not cupsd, is responsible for clearing. A
+// printer reporting media-empty while "Ready to print." still sat in that
+// field rendered reassuring words on a red card -- the exact failure v0.5.0
+// existed to fix, arriving through the field that fixed it (galley#28).
+// Colour is computed from the reasons independently of this text, so the two
+// could contradict each other outright.
+//
+// So when the vocabulary can name a real fault, the name leads and the
+// backend's message follows as detail: "Out of paper — Load paper into Tray 1".
+// Nothing is dropped either way -- an unmapped reason still reaches
+// humanizeReason, and the bare state is still the last resort, which is what
+// kept a stopped printer from having no explanation at all.
 function reasonText(printer) {
   if (!printer) return ""
+  var faults = namedFaults(printer)
+  if (faults.length) {
+    return combineFault(reasonPhrases(faults, REASON_TEXT).join(" · "),
+                        printer.stateMessage)
+  }
   if (printer.stateMessage) return printer.stateMessage
   var phrases = reasonPhrases(printer.stateReasons, REASON_TEXT)
   if (phrases.length) return phrases.join(" · ")
