@@ -19,9 +19,10 @@ echo "== bash syntax =="
 #
 # One invocation per file, never one call with many arguments. `bash -n a b c`
 # parses only `a` and passes b and c to it as positional parameters, so
-# `bash -n bin/* scripts/*.sh` checked bin/dev alone and printed ok for the
-# whole set (galley#32) -- this stage was green across eleven scripts while
-# reading one of them.
+# `bash -n bin/* scripts/*.sh` checked the first script alone and printed ok
+# for the whole set -- this stage was green across eleven scripts while
+# reading one of them. (No issue number here on purpose: bin/ scripts stay
+# byte-identical across plugins, so they carry no plugin-specific literal.)
 for script in bin/* scripts/*.sh; do
   [ -f "$script" ] || continue
   bash -n "$script" || { echo "  bash -n failed on $script"; exit 1; }
