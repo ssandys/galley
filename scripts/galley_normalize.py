@@ -192,6 +192,22 @@ ERROR_REASONS = frozenset([
 WARN_REASONS = frozenset([
     "media-low", "output-area-almost-full", "marker-waste-almost-full",
     "opc-near-eol",
+    # Amber rather than silence (galley#35). A paused queue prints nothing, and
+    # a printer that looks idle while its jobs never move is exactly what this
+    # tier exists for. Spelled out here rather than spliced in from
+    # PAUSE_REASONS so the cross-language guard, which scrapes the JavaScript
+    # array, keeps comparing whole vocabularies.
+    "paused", "moving-to-paused",
+])
+
+# A queue the user stopped on purpose. cupsdisable sets printer-state-reasons
+# to "paused"; moving-to-paused is the transition, while the job already on the
+# platen finishes. Neither is a fault -- the same reasoning that keeps "not
+# accepting jobs" (cupsreject) out of has_error below.
+#
+# Mirrors PAUSE_REASONS in Model.js -- the two MUST agree.
+PAUSE_REASONS = frozenset([
+    "paused", "moving-to-paused",
 ])
 
 
@@ -215,9 +231,22 @@ def _matches(printer, vocabulary):
 
 
 def has_error(printer):
-    if printer.get("state") == "stopped":
+    """A fault, as opposed to a state the administrator chose.
+
+    Reasons are checked before state: CUPS reports both at once when the fault
+    is what stopped the queue, and a real fault outranks a pause.
+
+    A stopped queue is then a fault unless the user stopped it themselves
+    (galley#35) -- pausing is reachable from Galley's own button, and painting
+    the result red spent the tier reserved for jams on an action the user had
+    just taken. An unexplained stop is still an error: only an explicit pause
+    reason earns the exemption.
+    """
+    if _matches(printer, ERROR_REASONS):
         return True
-    return _matches(printer, ERROR_REASONS)
+    if printer.get("state") == "stopped":
+        return not _matches(printer, PAUSE_REASONS)
+    return False
 
 
 def has_warning(printer):
