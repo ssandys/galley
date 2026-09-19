@@ -17,7 +17,8 @@ import "Model.js" as Model
 // (refresh, runAction, statusSnapshot). Everything else below is private
 // machinery:
 // `dataVersion`, `previousSnapshot`, `armedSupplies`, `jobWasActive`,
-// `pendingRefresh`, `notifyQueue` and `actionExited` have no reader outside
+// `pendingRefresh`, `notifyQueue`, `collectorReplied` and `actionExited`
+// have no reader outside
 // this file, and that is the point of the split.
 //
 // `dataVersion` joined that private list when the inert `dataVersion >= 0`
@@ -65,6 +66,12 @@ Item {
   property real nowSeconds: 0
 
   // Private machinery. No reader in Panel.qml.
+  //
+  // `collectorReplied` records whether the collector said anything at all on
+  // this run. It distinguishes a process that ran and answered from one that
+  // never started -- the only difference visible to the handler below, since
+  // a failed spawn emits no exited() either.
+  property bool collectorReplied: false
   property bool actionExited: false
   property bool pendingRefresh: false
   property var previousSnapshot: null
@@ -250,17 +257,37 @@ Item {
     id: collectProc
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.handleOutput(text)
+      onStreamFinished: {
+        root.collectorReplied = true
+        root.handleOutput(text)
+      }
     }
     onRunningChanged: {
-      if (collectProc.running) return
-      // Quickshell does not call streamEnded() when a process fails to
-      // spawn, so handleOutput never runs. Re-triggering here is therefore
-      // the only thing that keeps a coalesced refresh from being dropped
-      // silently: refresh() sets pendingRefresh and returns when a collect
-      // is already in flight, trusting this handler to run it afterwards.
-      // Small block, load-bearing: deleting it drops the second of two
-      // rapid refreshes with no error anywhere.
+      if (collectProc.running) {
+        root.collectorReplied = false
+        return
+      }
+      // Quickshell emits neither exited() nor streamFinished() when a process
+      // fails to spawn, so handleOutput never runs and nothing else would
+      // report it: cupsdState keeps whatever it last held. On first load that
+      // is "running", so a machine with no python3 showed "No printers
+      // configured" -- and after one good poll it showed stale content as
+      // current (galley#34). actionProc has always guarded its own spawn; this
+      // is the same guard, which the collector was simply missing.
+      //
+      // Safe to decide here rather than defer, and that was measured rather
+      // than assumed: under Quickshell 0.3.1 a successful run emits
+      // streamFinished BEFORE running goes false, so the flag is already set
+      // by the time this reads it. A failed spawn emits only this signal.
+      if (!root.collectorReplied) {
+        root.cupsdState = "error"
+        root.collectorError = "Could not run the collector — is python3 installed?"
+      }
+      // Re-triggering here is what keeps a coalesced refresh from being
+      // dropped silently: refresh() sets pendingRefresh and returns when a
+      // collect is already in flight, trusting this handler to run it
+      // afterwards. Small block, load-bearing: deleting it drops the second
+      // of two rapid refreshes with no error anywhere.
       if (root.pendingRefresh) Qt.callLater(root.refresh)
     }
   }
