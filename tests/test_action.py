@@ -89,6 +89,91 @@ class AdminActionTest(unittest.TestCase):
                          "xdg-open http://localhost:631")
 
 
+class RefusedActionTest(unittest.TestCase):
+    """A refused admin action must say what is wrong, not relay IPP at the user.
+
+    cupsdisable/cupsenable are IPP admin operations. Where the user is not in
+    a group cupsd accepts, both fail with `client-error-forbidden`, and the
+    panel showed that string verbatim in its error strip -- which reads as a
+    broken widget rather than a permission that was never granted (galley#31).
+
+    Matching is on the IPP status keyword, never the prose around it. cupsd
+    localizes "Operation failed:" and leaves the keyword alone, so a message
+    match would hold only for English installs -- the same trap PR #20 hit
+    with "No destinations", fixed there the same way.
+    """
+
+    def _refusing(self, directory, name, message):
+        """A stand-in for the real binary that fails the way cupsd makes it."""
+        path = os.path.join(directory, name)
+        with open(path, "w") as handle:
+            handle.write("#!/bin/sh\necho '%s' >&2\nexit 1\n" % message)
+        os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+        return path
+
+    def _run_with(self, name, message, args):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._refusing(tmp, name, message)
+            env = dict(os.environ)
+            env["PATH"] = tmp + os.pathsep + env.get("PATH", "")
+            return subprocess.run(["bash", ACTION] + args,
+                                  capture_output=True, timeout=15, env=env)
+
+    def test_a_forbidden_pause_names_the_permission(self):
+        proc = self._run_with(
+            "cupsdisable",
+            "cupsdisable: Operation failed: client-error-forbidden",
+            ["pause", "Brother@Home"])
+        err = proc.stderr.decode()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("printer admin rights", err)
+        # The raw keyword stays: it is what a user searches for, and hiding it
+        # is the same mistake as dropping an unmapped printer-state-reason.
+        self.assertIn("client-error-forbidden", err)
+
+    def test_a_forbidden_resume_names_the_permission(self):
+        proc = self._run_with(
+            "cupsenable",
+            "cupsenable: Operation failed: client-error-forbidden",
+            ["resume", "Brother@Home"])
+        self.assertIn("printer admin rights", proc.stderr.decode())
+
+    def test_a_refusal_that_wants_credentials_says_so_instead(self):
+        # A different refusal with a different answer: authenticating would
+        # help here, where joining a group is what helps above.
+        proc = self._run_with(
+            "cupsdisable",
+            "cupsdisable: Operation failed: client-error-not-authorized",
+            ["pause", "Brother@Home"])
+        err = proc.stderr.decode()
+        self.assertIn("authentication", err)
+        self.assertIn("client-error-not-authorized", err)
+        self.assertNotIn("printer admin rights", err)
+
+    def test_the_localized_prose_is_not_what_is_matched(self):
+        # Same status, German wrapper. Keying on the keyword means this still
+        # explains itself; keying on the message would have regressed here
+        # invisibly to every English-locale test in this file.
+        proc = self._run_with(
+            "cupsdisable",
+            "cupsdisable: Vorgang fehlgeschlagen: client-error-forbidden",
+            ["pause", "Brother@Home"])
+        self.assertIn("printer admin rights", proc.stderr.decode())
+
+    def test_an_unrelated_failure_is_still_relayed_verbatim(self):
+        # Control. Without this, a script that replaced every failure with the
+        # permission message would satisfy every assertion above.
+        proc = self._run_with(
+            "cupsdisable",
+            "cupsdisable: Operation failed: client-error-not-found",
+            ["pause", "Nope@Nowhere"])
+        err = proc.stderr.decode()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("client-error-not-found", err)
+        self.assertNotIn("printer admin rights", err)
+        self.assertNotIn("authentication", err)
+
+
 class WebUiDetachTest(unittest.TestCase):
     """web-ui must return before the browser does.
 
