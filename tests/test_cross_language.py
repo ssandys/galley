@@ -78,6 +78,26 @@ class CrossLanguageErrorReasonsTest(unittest.TestCase):
         # one-sided edit gives an amber printer beside a "0 warnings" summary.
         self.assertEqual(self._js_list("WARN_REASONS"), set(gn.WARN_REASONS))
 
+    def test_javascript_pause_reasons_match_python(self):
+        # The seventh crossing (galley#35). Pausing is an administrative state,
+        # not a fault: Python keeps a paused queue out of errorPrinters and
+        # JavaScript keeps it off the error colour, each deciding separately.
+        self.assertEqual(self._js_list("PAUSE_REASONS"), set(gn.PAUSE_REASONS))
+
+    def test_the_pause_reasons_are_also_in_the_warning_tier(self):
+        # Each language spells the pause reasons twice -- once in
+        # PAUSE_REASONS, to exempt them from has_error, and once inside
+        # WARN_REASONS, to give a paused queue amber instead of silence. They
+        # are written out rather than spliced together so the scrapes above
+        # compare whole vocabularies, which makes it possible to update one and
+        # forget the other.
+        self.assertTrue(
+            set(gn.PAUSE_REASONS) <= set(gn.WARN_REASONS),
+            "Python: pause reasons missing from WARN_REASONS")
+        self.assertTrue(
+            self._js_list("PAUSE_REASONS") <= self._js_list("WARN_REASONS"),
+            "JavaScript: pause reasons missing from WARN_REASONS")
+
     def test_the_two_tiers_do_not_overlap(self):
         # has_warning yields to has_error, so an overlapping entry would be
         # unreachable in the warning tier -- a silent no-op rather than a
@@ -492,6 +512,88 @@ class SnapshotSchemaParityTest(unittest.TestCase):
             "parseSnapshot handed back a shared summary object rather than a "
             "fresh one -- a later mutation of a parsed snapshot can now "
             "corrupt Model.EMPTY_SNAPSHOT",
+        )
+
+
+NODE_SEVERITY_SCRIPT = """
+var Model = require(%s);
+var cases = JSON.parse(process.argv[1]);
+var out = [];
+for (var i = 0; i < cases.length; i++) {
+  out.push([Model.printerHasError(cases[i]), Model.printerHasWarning(cases[i])]);
+}
+process.stdout.write(JSON.stringify(out));
+""" % json.dumps(MODEL_JS_PATH)
+
+
+class SeverityLadderParityTest(unittest.TestCase):
+    """Both languages must sort the same printer into the same tier.
+
+    The vocabularies are compared by the scrapes above, but the *logic* around
+    them is duplicated too, and that is what drifted in galley#35: a stopped
+    printer was an error in both languages until pausing needed an exemption,
+    and the exemption had to be added twice. A list guard cannot see a
+    one-sided edit to the surrounding branch.
+
+    So this executes both. Python calls the real has_error/has_warning, node
+    calls the real printerHasError/printerHasWarning, over the same fixtures,
+    and the two answers must agree case for case.
+    """
+
+    CASES = [
+        # (description, printer)
+        ("paused by the user", {"state": "stopped", "stateReasons": ["paused"]}),
+        ("pausing, job still on the platen",
+         {"state": "processing", "stateReasons": ["moving-to-paused"]}),
+        ("paused AND out of paper -- the fault outranks the pause",
+         {"state": "stopped", "stateReasons": ["paused", "media-empty"]}),
+        ("stopped with no reason given",
+         {"state": "stopped", "stateReasons": []}),
+        ("stopped reporting none",
+         {"state": "stopped", "stateReasons": ["none"]}),
+        ("stopped by a jam", {"state": "stopped", "stateReasons": ["media-jam"]}),
+        ("idle but low on paper",
+         {"state": "idle", "stateReasons": ["media-low"]}),
+        ("healthy and idle", {"state": "idle", "stateReasons": ["none"]}),
+        ("printing normally", {"state": "printing", "stateReasons": ["none"]}),
+        ("suffixed fault", {"state": "idle", "stateReasons": ["media-empty-warning"]}),
+    ]
+
+    @unittest.skipUnless(
+        shutil.which("node"), "node is required to verify Model.js behaviour"
+    )
+    def test_both_languages_agree_on_every_tier(self):
+        printers = [printer for _, printer in self.CASES]
+        result = subprocess.run(
+            ["node", "-e", NODE_SEVERITY_SCRIPT, "--", json.dumps(printers)],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            "node failed to execute Model.js: %s" % result.stderr,
+        )
+        js = json.loads(result.stdout)
+        self.assertEqual(len(js), len(self.CASES), "node returned the wrong count")
+
+        for (label, printer), (js_error, js_warn) in zip(self.CASES, js):
+            py_error = gn.has_error(printer)
+            py_warn = gn.has_warning(printer)
+            self.assertEqual(
+                (py_error, py_warn), (js_error, js_warn),
+                "%s: Python says (error=%r, warn=%r), JavaScript says "
+                "(error=%r, warn=%r) for %r"
+                % (label, py_error, py_warn, js_error, js_warn, printer),
+            )
+
+        # Floor: a pair of functions that always returned False would agree
+        # perfectly and guard nothing.
+        tiers = set()
+        for _, printer in self.CASES:
+            tiers.add((gn.has_error(printer), gn.has_warning(printer)))
+        self.assertGreaterEqual(
+            len(tiers), 3,
+            "these fixtures only ever produced %r -- they no longer exercise "
+            "the ladder they are meant to guard" % (tiers,),
         )
 
 

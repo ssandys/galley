@@ -82,7 +82,17 @@ var ERROR_REASONS = [
 // marker-levels against a user-tunable threshold.
 var WARN_REASONS = [
   "media-low", "output-area-almost-full", "marker-waste-almost-full",
-  "opc-near-eol"
+  "opc-near-eol", "paused", "moving-to-paused"
+]
+
+// A queue the user stopped on purpose. cupsdisable sets printer-state-reasons
+// to "paused"; moving-to-paused is the transition, while the job already on
+// the platen finishes. Neither is a fault -- the same reasoning that keeps
+// "not accepting jobs" (cupsreject) out of printerHasError below.
+//
+// Mirrors PAUSE_REASONS in scripts/galley_normalize.py -- the two MUST agree.
+var PAUSE_REASONS = [
+  "paused", "moving-to-paused"
 ]
 
 // Short human phrases for the reasons that actually occur. Anything missing
@@ -191,14 +201,36 @@ function isWarnReason(reason) {
   return false
 }
 
+function isPauseReason(reason) {
+  var text = String(reason || "")
+  if (!text || text === "none") return false
+  var base = baseReason(text)
+  for (var i = 0; i < PAUSE_REASONS.length; i++) {
+    if (PAUSE_REASONS[i] === base || PAUSE_REASONS[i] === text) return true
+  }
+  return false
+}
+
+// A fault, as opposed to a state the administrator chose. Not accepting jobs
+// (cupsreject) was always kept out of this on those grounds; pausing
+// (cupsdisable) was not, so clicking Galley's own pause button painted the
+// printer red and counted a fault that did not exist (galley#35).
+//
+// Reasons are checked before state, because CUPS reports both at once when the
+// fault is what stopped the queue: a real fault outranks a pause. An
+// unexplained stop stays an error -- only an explicit pause reason is exempt.
 function printerHasError(printer) {
   if (!printer) return false
-  if (printer.state === "stopped") return true
-  // Not accepting jobs is a deliberate admin state (cupsreject), not a
-  // fault. Kept out so this agrees with galley_normalize.has_error.
   var reasons = printer.stateReasons || []
-  for (var i = 0; i < reasons.length; i++) {
+  var i
+  for (i = 0; i < reasons.length; i++) {
     if (isErrorReason(reasons[i])) return true
+  }
+  if (printer.state === "stopped") {
+    for (i = 0; i < reasons.length; i++) {
+      if (isPauseReason(reasons[i])) return false
+    }
+    return true
   }
   return false
 }
@@ -619,6 +651,7 @@ if (typeof module !== "undefined") {
     printerHasError: printerHasError,
     isErrorReason: isErrorReason,
     isWarnReason: isWarnReason,
+    isPauseReason: isPauseReason,
     printerHasWarning: printerHasWarning,
     reasonText: reasonText,
     jobReasonText: jobReasonText,

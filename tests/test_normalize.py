@@ -347,6 +347,42 @@ class WarningReasonTest(unittest.TestCase):
         for reason in ("none", "", "other", "job-printing"):
             self.assertFalse(gn.has_warning(self._printer(reason)), reason)
 
+    def test_a_paused_queue_is_not_an_error(self):
+        # galley#35. cupsdisable stops the printer and sets the reason to
+        # "paused". Nothing is broken -- the user did it, from Galley's own
+        # button -- so it must not spend the tier reserved for paper jams.
+        paused = {"state": "stopped", "stateReasons": ["paused"]}
+        self.assertFalse(gn.has_error(paused))
+
+    def test_a_paused_queue_warns_rather_than_going_silent(self):
+        # Amber, not nothing: a paused queue prints nothing, and a printer that
+        # looks idle while its jobs never move is the failure the warning tier
+        # exists for.
+        paused = {"state": "stopped", "stateReasons": ["paused"]}
+        self.assertTrue(gn.has_warning(paused))
+
+    def test_a_stopped_printer_with_a_real_fault_is_still_an_error(self):
+        # The guard on the fix. CUPS can mark a queue paused at the same moment
+        # it reports the fault that stopped it; without this, the fix would
+        # quietly downgrade every such fault to amber.
+        both = {"state": "stopped", "stateReasons": ["paused", "media-empty"]}
+        self.assertTrue(gn.has_error(both))
+        self.assertFalse(gn.has_warning(both))
+
+    def test_a_stopped_printer_with_no_reason_is_still_an_error(self):
+        # Preserves today's default. Only an explicit pause reason earns the
+        # exemption; an unexplained stop is still a fault.
+        for reasons in ([], ["none"]):
+            self.assertTrue(
+                gn.has_error({"state": "stopped", "stateReasons": reasons}),
+                reasons)
+
+    def test_pausing_in_progress_is_also_not_a_fault(self):
+        # moving-to-paused is the transition, while the current job finishes.
+        printer = {"state": "processing", "stateReasons": ["moving-to-paused"]}
+        self.assertFalse(gn.has_error(printer))
+        self.assertTrue(gn.has_warning(printer))
+
     def test_supply_low_reasons_stay_out_of_the_warning_tier(self):
         # toner-low and marker-supply-low are already covered by marker-levels
         # via low_supplies, with a configurable threshold and hysteresis.

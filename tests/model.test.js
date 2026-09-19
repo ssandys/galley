@@ -659,3 +659,46 @@ test("formatAge says nothing when it has no clock to compare against", () => {
   assert.equal(Model.formatAge(1788532863, 0), "")
   assert.equal(Model.formatAge(1788532863, null), "")
 })
+
+// galley#35 -- pausing is a deliberate admin action, not a malfunction.
+// Model.js already draws this line for cupsreject ("not accepting jobs is a
+// deliberate admin state") and then treated cupsdisable as a fault.
+
+test("printerHasError leaves a paused queue alone", () => {
+  const paused = { state: "stopped", stateReasons: ["paused"] }
+  assert.equal(Model.printerHasError(paused), false)
+  assert.equal(Model.printerHasWarning(paused), true)
+})
+
+test("printerColor paints a paused queue amber, not red", () => {
+  const paused = { state: "stopped", stateReasons: ["paused"] }
+  assert.equal(Model.printerColor(paused, "#ffffff"), Model.COLOR_WARN)
+})
+
+test("a stopped printer with a real fault is still an error", () => {
+  // The control. A fault outranks the pause, or this change downgrades every
+  // fault CUPS happens to mark paused at the same time.
+  const both = { state: "stopped", stateReasons: ["paused", "media-empty"] }
+  assert.equal(Model.printerHasError(both), true)
+  assert.equal(Model.printerHasWarning(both), false)
+  assert.equal(Model.printerColor(both, "#ffffff"), Model.COLOR_ERROR)
+})
+
+test("a stopped printer with no reason given is still an error", () => {
+  // Today's default survives: only an explicit pause reason is exempt.
+  for (const stateReasons of [[], ["none"], undefined]) {
+    assert.equal(
+      Model.printerHasError({ state: "stopped", stateReasons }), true,
+      JSON.stringify(stateReasons))
+  }
+})
+
+test("barSeverity does not raise the error tier for a paused queue", () => {
+  const snapshot = {
+    cupsd: "running", jobs: [],
+    printers: [{ name: "P1", state: "stopped", stateReasons: ["paused"] }],
+    summary: { printers: 1, activeJobs: 0, errorPrinters: 0,
+               warnPrinters: 1, lowSupplies: 0 }
+  }
+  assert.equal(Model.barSeverity(snapshot), "warn")
+})
