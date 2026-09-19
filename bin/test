@@ -16,7 +16,16 @@ echo "== bash syntax =="
 # only bash by convention in these plugins; a non-bash entry must revisit this.
 # nullglob covers a plugin with no scripts/*.sh, and bin/* is never empty since
 # bin/test is itself running, so `bash -n` can never fall through to stdin.
-bash -n bin/* scripts/*.sh
+#
+# One invocation per file, never one call with many arguments. `bash -n a b c`
+# parses only `a` and passes b and c to it as positional parameters, so
+# `bash -n bin/* scripts/*.sh` checked bin/dev alone and printed ok for the
+# whole set (galley#32) -- this stage was green across eleven scripts while
+# reading one of them.
+for script in bin/* scripts/*.sh; do
+  [ -f "$script" ] || continue
+  bash -n "$script" || { echo "  bash -n failed on $script"; exit 1; }
+done
 echo "  ok"
 
 echo "== qml syntax =="
