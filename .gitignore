@@ -4,3 +4,6 @@ __pycache__/
 .superpowers/
 .claude/worktrees/
 .claude/settings.local.json
+
+# Promo card source. The rendered PNG beside it is tracked; this is not.
+docs/promo/*.html

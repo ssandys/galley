@@ -1,5 +1,10 @@
 # Galley
 
+![Galley: a CUPS printer monitor for the Omarchy bar. The panel shows
+Brother@Home stopped and out of paper, Canon@OLP printing with its toner
+levels, and a queue of three jobs with their ages and
+reasons](docs/promo/galley-card.png)
+
 Galley is an Omarchy shell bar widget that shows the state of every CUPS
 printer and the active print queue, and lets you act on both without leaving
 the bar.
@@ -9,9 +14,11 @@ printer cards for Brother@Home and Canon@OLP — both idle, each showing supply
 levels, a job count, and a pause button — and an empty QUEUE section reading
 "No active jobs"](docs/panel.png)
 
-Above: the calm state — both printers idle, nothing queued. The bar glyph is
-plain (no count badge), and the panel footer spells out the two keys that
-matter, `r` and `Esc`.
+That second screenshot is the real panel in its calm state — both printers
+idle, nothing queued. The bar glyph is plain (no count badge), and the panel
+footer spells out the two keys that matter, `r` and `Esc`. The card above it
+shows the opposite: a printer that has stopped, and a queue that is waiting on
+it.
 
 ## Prerequisites
 
