@@ -89,15 +89,97 @@ class CupsdGateTest(unittest.TestCase):
     def test_asleep_snapshot_skips_ipptool(self):
         # IdleExitTimeout means cupsd sleeps when unused; polling must not
         # wake it. A stopped cupsd has no jobs by definition.
-        original = gc.cupsd_running
-        gc.cupsd_running = lambda: False
-        try:
+        with unittest.mock.patch.object(
+                gc, "cupsd_status", return_value=gc.CUPSD_ASLEEP):
             snapshot = gc.collect(15)
-        finally:
-            gc.cupsd_running = original
         self.assertEqual(snapshot["cupsd"], "asleep")
         self.assertEqual(snapshot["jobs"], [])
         self.assertIsNone(snapshot["error"])
+
+    def test_a_failed_service_is_not_called_idle(self):
+        # galley#33. cupsd_running() collapsed every non-zero exit status to
+        # "asleep", so a unit that had failed to start was shown with the
+        # calmest screen the panel has -- "CUPS idle - nothing queued" -- while
+        # the machine needed attention.
+        with unittest.mock.patch.object(
+                gc, "cupsd_status", return_value=gc.CUPSD_FAILED):
+            snapshot = gc.collect(15)
+        self.assertEqual(snapshot["cupsd"], "error")
+        self.assertTrue(snapshot["error"], "a failed unit must say something")
+        self.assertIn("cups.service", snapshot["error"])
+        # Still no IPP traffic: a failed unit is no more worth poking than a
+        # sleeping one.
+        self.assertEqual(snapshot["jobs"], [])
+
+
+class CupsdStatusTest(unittest.TestCase):
+    """cupsd_status reads the state systemctl prints, not just its exit code.
+
+    `systemctl is-active --quiet` throws the answer away and leaves only
+    zero/non-zero, which cannot separate "inactive" -- the ordinary resting
+    state for a socket-activated, idle-exiting daemon -- from "failed".
+    """
+
+    def _with_systemctl(self, stdout, returncode=0):
+        completed = subprocess.CompletedProcess(
+            [], returncode, stdout=stdout, stderr="")
+        return unittest.mock.patch.object(
+            gc.subprocess, "run", return_value=completed)
+
+    def test_active_is_up(self):
+        with self._with_systemctl("active\n"):
+            self.assertEqual(gc.cupsd_status(), gc.CUPSD_UP)
+
+    def test_inactive_is_asleep_not_an_error(self):
+        # The common case on this hardware: cups.socket is listening and the
+        # service exits when unused. Nothing is wrong.
+        with self._with_systemctl("inactive\n", returncode=3):
+            self.assertEqual(gc.cupsd_status(), gc.CUPSD_ASLEEP)
+
+    def test_failed_is_reported_as_failed(self):
+        with self._with_systemctl("failed\n", returncode=3):
+            self.assertEqual(gc.cupsd_status(), gc.CUPSD_FAILED)
+
+    def test_a_transitional_state_is_left_alone(self):
+        # activating/deactivating settle on their own; neither is worth an
+        # alarm, and neither is worth waking with a poll.
+        for state in ("activating", "deactivating"):
+            with self._with_systemctl(state + "\n", returncode=3):
+                self.assertEqual(gc.cupsd_status(), gc.CUPSD_ASLEEP, state)
+
+    def test_an_unknown_unit_is_asleep_rather_than_failed(self):
+        # A machine with no cups unit at all is not a failure to report; the
+        # panel's empty state already covers "nothing to print to".
+        with self._with_systemctl("unknown\n", returncode=4):
+            self.assertEqual(gc.cupsd_status(), gc.CUPSD_ASLEEP)
+
+    def test_a_missing_systemctl_assumes_up_and_lets_ipptool_decide(self):
+        # The documented fallback, preserved. Deliberately optimistic: guessing
+        # "asleep" would show a calm idle panel on a machine where nothing had
+        # been checked at all, and ipptool's own failure is specific where this
+        # one is not.
+        with unittest.mock.patch.object(
+                gc.subprocess, "run", side_effect=FileNotFoundError("systemctl")):
+            self.assertEqual(gc.cupsd_status(), gc.CUPSD_UP)
+
+    def test_a_query_that_times_out_also_assumes_up(self):
+        with unittest.mock.patch.object(
+                gc.subprocess, "run",
+                side_effect=subprocess.TimeoutExpired("systemctl", 5)):
+            self.assertEqual(gc.cupsd_status(), gc.CUPSD_UP)
+
+    def test_the_query_does_not_use_quiet(self):
+        # The regression, stated directly: --quiet discards the state name and
+        # leaves only an exit code, which is what made "failed" and "inactive"
+        # the same answer.
+        with unittest.mock.patch.object(
+                gc.subprocess, "run",
+                return_value=subprocess.CompletedProcess([], 0, "active\n", "")
+        ) as run:
+            gc.cupsd_status()
+        argv = run.call_args[0][0]
+        self.assertIn("is-active", argv)
+        self.assertNotIn("--quiet", argv)
 
 
 class SubprocessFailureTest(unittest.TestCase):
@@ -105,8 +187,12 @@ class SubprocessFailureTest(unittest.TestCase):
 
     def _fake_bin(self, tmp, ipptool_body):
         import stat
+        # The stand-in systemctl must PRINT its state, not merely exit 0:
+        # cupsd_status reads `is-active` output so it can tell "failed" from
+        # "inactive" (galley#33). A silent exit-0 now reads as asleep, which
+        # would short-circuit every ipptool case below before it ran.
         for name, body in (("ipptool", ipptool_body),
-                           ("systemctl", "#!/bin/sh\nexit 0\n")):
+                           ("systemctl", "#!/bin/sh\necho active\nexit 0\n")):
             path = os.path.join(tmp, name)
             with open(path, "w") as handle:
                 handle.write(body)
@@ -216,7 +302,8 @@ class SubprocessFailureTest(unittest.TestCase):
             import stat
             path = os.path.join(tmp, "systemctl")
             with open(path, "w") as handle:
-                handle.write("#!/bin/sh\nexit 0\n")
+                # Prints its state, for the reason given in _fake_bin above.
+                handle.write("#!/bin/sh\necho active\nexit 0\n")
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
             env = dict(os.environ)
             env["PATH"] = tmp

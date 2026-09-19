@@ -29,20 +29,56 @@ def current_user():
         return os.environ.get("USER", "")
 
 
-def cupsd_running():
-    """Whether cupsd is up.
+# What `systemctl is-active` prints, mapped to what the panel should do.
+# Anything not listed is treated as asleep, which is the safe default: it shows
+# last-known content and does not wake cupsd by polling it.
+CUPSD_UP = "running"
+CUPSD_ASLEEP = "asleep"
+CUPSD_FAILED = "failed"
 
-    IdleExitTimeout lets cupsd shut down when unused. Polling it would keep
-    it alive forever, so when it is asleep we report idle without waking it.
+
+def cupsd_status():
+    """Whether cupsd is up, asleep, or in trouble.
+
+    IdleExitTimeout lets cupsd shut down when unused, and it is socket
+    activated, so "inactive" is the ordinary resting state rather than a
+    problem -- polling it would keep it alive forever, so when it is asleep we
+    report idle without waking it.
+
+    "failed" is not that. A unit that failed to start needs attention, and
+    reporting it as idle hid it behind the calmest screen the panel has
+    (galley#33). The two were indistinguishable because this asked only whether
+    the exit status was zero; `is-active` prints the state it found, so read
+    that instead of collapsing every non-zero to "asleep".
+
+    Returns one of CUPSD_UP, CUPSD_ASLEEP or CUPSD_FAILED.
     """
     try:
         result = subprocess.run(
-            ["systemctl", "is-active", "--quiet", "cups.service"], timeout=5
+            ["systemctl", "is-active", "cups.service"],
+            capture_output=True, text=True, timeout=5,
         )
-        return result.returncode == 0
     except Exception:
-        # No systemd, or systemctl missing: assume running and let ipptool decide.
-        return True
+        # No systemd, or systemctl missing, or the query itself timed out.
+        # Deliberately optimistic: assume it is up and let ipptool be the
+        # judge, because ipptool's failure is specific and this one is not.
+        # Guessing "asleep" here would show a calm idle panel on a machine
+        # where nothing had actually been checked.
+        return CUPSD_UP
+
+    state = (result.stdout or "").strip()
+    if state == "active":
+        return CUPSD_UP
+    if state == "failed":
+        return CUPSD_FAILED
+    # inactive, activating, deactivating, unknown, or a unit that does not
+    # exist. None of these is worth waking, and none is worth alarming about.
+    return CUPSD_ASLEEP
+
+
+def cupsd_running():
+    """Back-compat shim: whether cupsd is up enough to poll."""
+    return cupsd_status() == CUPSD_UP
 
 
 def run_ipptool(request_path, uri=IPP_URI):
@@ -153,10 +189,22 @@ def completed_job_ids():
 
 
 def collect(threshold=15, want_completed=False):
-    if not cupsd_running() and not fixture_path():
-        snapshot = gn.build_snapshot(cupsd="asleep", threshold=threshold)
-        snapshot["completedIds"] = []
-        return snapshot
+    if not fixture_path():
+        status = cupsd_status()
+        if status == CUPSD_FAILED:
+            # Not the idle state. cups.service failed, and saying "idle" here
+            # put the quietest screen in the panel in front of a machine that
+            # needs attention (galley#33).
+            snapshot = gn.build_snapshot(
+                cupsd="error", threshold=threshold,
+                error="cups.service has failed -- try "
+                      "`systemctl status cups.service`")
+            snapshot["completedIds"] = []
+            return snapshot
+        if status == CUPSD_ASLEEP:
+            snapshot = gn.build_snapshot(cupsd="asleep", threshold=threshold)
+            snapshot["completedIds"] = []
+            return snapshot
 
     try:
         directory = fixture_path()
