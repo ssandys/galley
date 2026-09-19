@@ -490,11 +490,67 @@ test("reasonText names the fault when the backend leaves stateMessage empty", ()
   assert.notEqual(text, "stopped")
 })
 
-test("reasonText prefers the backend's own message when there is one", () => {
+test("reasonText leads with the named fault and keeps the backend's detail", () => {
+  // Contract change, galley#28. This used to return the backend message alone.
+  // The message often names the specific tray, which the vocabulary cannot, so
+  // it is kept -- but it is free text the backend is responsible for clearing,
+  // and it must not be the only thing a user reads off a red card.
   const printer = { name: "p", state: "stopped",
                     stateMessage: "Load paper into Tray 1",
                     stateReasons: ["media-empty-error"] }
-  assert.equal(Model.reasonText(printer), "Load paper into Tray 1")
+  assert.equal(Model.reasonText(printer),
+               "Out of paper — Load paper into Tray 1")
+})
+
+test("reasonText does not let a stale message speak for a fault", () => {
+  // The failure this ordering exists to make impossible: a printer reporting
+  // media-empty while "Ready to print." is still sitting in
+  // printer-state-message. Before, the card read "Ready to print." in red.
+  const printer = { name: "p", state: "stopped",
+                    stateMessage: "Ready to print.",
+                    stateReasons: ["media-empty"] }
+  const text = Model.reasonText(printer)
+  assert.match(text, /^Out of paper/)
+  assert.match(text, /Ready to print/)   // kept, but no longer leading
+})
+
+test("reasonText says a redundant message only once", () => {
+  const printer = { name: "p", state: "stopped",
+                    stateMessage: "Out of paper",
+                    stateReasons: ["media-empty"] }
+  assert.equal(Model.reasonText(printer), "Out of paper")
+})
+
+test("reasonText yields to a message that says more than the phrase", () => {
+  const printer = { name: "p", state: "idle",
+                    stateMessage: "Paper low in Tray 2",
+                    stateReasons: ["media-low"] }
+  assert.equal(Model.reasonText(printer), "Paper low in Tray 2")
+})
+
+test("reasonText prefers the operator's note over the word Paused", () => {
+  // galley#35 made "paused" a warn reason, which would otherwise have pulled
+  // it into the fault branch and buried the one useful string on the card.
+  // Whatever was typed into `cupsdisable -r` always says more than "Paused".
+  const printer = { name: "p", state: "stopped",
+                    stateMessage: "Out for repair until Tuesday",
+                    stateReasons: ["paused"] }
+  assert.equal(Model.reasonText(printer), "Out for repair until Tuesday")
+})
+
+test("reasonText still names a plain pause when there is no note", () => {
+  const printer = { name: "p", state: "stopped", stateMessage: "",
+                    stateReasons: ["paused"] }
+  assert.equal(Model.reasonText(printer), "Paused")
+})
+
+test("reasonText keeps the backend's message when nothing is wrong", () => {
+  // No fault named, so the unconditional preference stands: the backend is
+  // the only source with anything to say.
+  const printer = { name: "p", state: "idle",
+                    stateMessage: "Warming up",
+                    stateReasons: ["none"] }
+  assert.equal(Model.reasonText(printer), "Warming up")
 })
 
 test("reasonText joins multiple reasons", () => {
