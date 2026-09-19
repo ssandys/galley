@@ -221,9 +221,18 @@ Diff two consecutive snapshots; suppressed on first load so startup is silent.
 
 | Event | Trigger | Default |
 |---|---|---|
-| Job failed | job state → `stopped`/`aborted`, or its printer → `stopped` | on |
+| Job failed | job state → `stopped`/`aborted` | on |
 | Printer error | printer enters `stopped`, or gains an error reason | on |
 | Job completed | job left the active queue **and** appears in completed | on |
+
+Two rows above were corrected against the implementation rather than the other
+way round (galley#30). "Job failed" originally also listed *or its printer →
+`stopped`*; that half is deliberately not implemented, because the separate
+"Printer error" row already covers it and firing both would raise two
+notifications for one event. Leaving the row as written invited exactly that
+"fix". The action-failure row described an inline error per card; the panel
+renders one shared strip at its foot, which was a reasonable simplification
+that had simply never been written down.
 | Supply low | marker crosses below threshold | on |
 
 **Completed-vs-cancelled disambiguation.** A completed job and a cancelled job
@@ -255,7 +264,7 @@ Adaptive, since event-driven D-Bus was explicitly deferred to phase 2:
 | Collector exits non-zero | Error strip with stderr tail; **last-known data retained** |
 | Malformed plist / JSON | Same as above; never clears a good previous snapshot |
 | `ipptool` hang | 10s timeout, then error strip |
-| Action fails | Inline error on the card showing stderr |
+| Action fails | One shared error strip at the foot of the panel, showing stderr |
 
 The retain-last-known rule matters: a transient cupsd restart should not blank
 the panel.

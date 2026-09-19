@@ -10,12 +10,18 @@ Severity reflects that this is a personal-use widget on a single-user desktop.
 
 ## Tracked as issues
 
-Only what is still open. Everything this file used to list under here has been
-closed — see the git log for which commit closed which.
+Nothing from this file's original triage is still open — see the git log for
+which commit closed which. Current work lives in the issue tracker; this file
+keeps only what has no issue behind it.
 
-| # | Item |
-|---|---|
-| [19](https://github.com/ssandys/galley/issues/19) | Bar open-panel indicator reads a few px off-centre under the glyph — likely upstream in `Bar.qml`, which centres the mark on the slot and offers no way to shift it |
+**#19 is closed, and its cause here was wrong.** This table used to describe it
+as "likely upstream in `Bar.qml`, which centres the mark on the slot and offers
+no way to shift it". That diagnosis was investigated and retracted: the cause
+was local. `WidgetButton` centres the monospace advance cell, while
+`BarIconButton`/`OpticalGlyph` centre the painted ink, so the two disagree by
+the difference between the two. It is recorded here because a wrong cause left
+in the record is worse than none — it sends the next reader upstream to a
+project that was never at fault.
 
 Closed, in order: #1 (`Controller.qml` extracted out of `Panel.qml`), #2
 (`printerGlyph` deleted), #3 (inert `dataVersion` guards), #4 (the
@@ -26,9 +32,9 @@ owner-gated like the per-job cancel), #9 (`other`-typed markers do warn, now
 enforced in both languages), #10 and #11 (the retained-state bugs), #12
 (`loading` deleted), #15 (`bin/dev` replaced `bin/install`), #16 (`bin/test` ran
 only one suite), #17 (the identity rewrite covered only `*.qml`), #18 (two false
-README claims).
+README claims), #19 (the bar indicator, cause above).
 
-Still open but tracked elsewhere in this file: #13 and #14, under "Not built,
+Still open and tracked elsewhere in this file: #14, under "Not built,
 deliberately".
 
 ## Done
@@ -57,10 +63,10 @@ at all, and that the change handler fires — are outside what `node --test` and
 running the same property structure under a standalone `qml` runtime.
 
 **Cross-language duplication now has a guard** — `tests/test_cross_language.py`,
-merged 2026-08-09. Covers all six crossings: `ERROR_REASONS`, state-name
-strings, the threshold default across seven declarations, the `waste-toner`
-exclusion, the colour palette, and the snapshot schema. The `waste-toner` and
-palette crossings still have open issues
+merged 2026-08-09. Covers all seven crossings: `ERROR_REASONS`, `WARN_REASONS`
+and `PAUSE_REASONS`, state-name strings, the threshold default across seven
+declarations, the `waste-toner` exclusion, the colour palette, and the snapshot
+schema. The `waste-toner` and palette crossings still have open issues
 ([7](https://github.com/ssandys/galley/issues/7),
 [6](https://github.com/ssandys/galley/issues/6)) — the guard freezes the
 duplication, it does not remove it.
@@ -75,7 +81,7 @@ assertions, because a test that only checks "waste toner returns the fallback"
 is satisfied by an implementation that returns the fallback unconditionally.
 
 A guard that pattern-matches source text is guarding the text, not the
-behaviour. If you add a seventh crossing, execute it.
+behaviour.
 
 The sixth crossing proved that rule the hard way before it got one. The
 snapshot schema gained `warnPrinters` in v0.5.0 and the three fallback
@@ -87,18 +93,35 @@ is quietly false — a text scrape for the field name would have found it in
 Python and `parseSnapshot()` under `node`, and compares the key sets that
 come back.
 
+The seventh, `PAUSE_REASONS`, arrived with its guard rather than after one, and
+with two: the vocabularies are scraped, and a second test executes the real
+severity functions in both languages over ten printers and compares tier for
+tier. The lists were never the whole risk — what drifted in
+[35](https://github.com/ssandys/galley/issues/35) was the branch around them,
+which had to be edited twice and could have been edited once.
+
+If you add an eighth crossing, execute it.
+
 ## Documentation drift
 
-Not filed as issues — two small edits, one PR's worth of work.
+Both items here are fixed (galley#30); kept as a record of what was wrong and
+what won.
 
-- The spec says a failed action shows an "inline error on the card"; the code
-  shows one shared strip at the panel bottom. Reasonable simplification,
-  undocumented.
-- The spec lists job-failed as firing on "job state → stopped/aborted, **or its
-  printer → stopped**". Only the job-state half is implemented; the printer half
-  is covered by the separate printer-error event, so behaviour is right but the
-  spec row is wrong — and leaving it invites someone to "fix" the code into
-  firing two notifications for one event.
+- The spec said a failed action shows an "inline error on the card"; the code
+  shows one shared strip at the foot of the panel. The code was right and the
+  spec now says so — a reasonable simplification that had never been written
+  down.
+- The spec listed job-failed as firing on "job state → stopped/aborted, **or
+  its printer → stopped**". Only the job-state half is implemented, on purpose:
+  the separate printer-error event already covers the other, and firing both
+  would raise two notifications for one event. The spec row was the wrong half,
+  and leaving it there invited someone to "fix" the code into doing exactly
+  that.
+
+That this file — the one arguing documentation drift "invites someone to 'fix'
+the code" — carried four stale claims of its own for a month is the joke that
+writes itself, and the reason to re-read it whenever an issue it mentions
+closes.
 
 ## Fine as is
 
@@ -120,16 +143,22 @@ Not filed as issues — two small edits, one PR's worth of work.
 
 ## Not built, deliberately
 
-Four things were specified and consciously left out. The spec's Phase 2 section
+Three things were specified and consciously left out; a fourth,
+printer admin actions, has since mostly shipped and is kept here for the
+record. The spec's Phase 2 section
 (`docs/superpowers/specs/2026-08-08-galley-design.md`) is canonical — including
 the verified Arch package ownership for every external program Galley calls,
 which is recorded there and nowhere else.
 
-- **Printer admin actions** — set default, accept/reject, open the web UI.
-  Tracked as [#13](https://github.com/ssandys/galley/issues/13). Each is a
-  single CLI call; the cost is UI crowding and confirmation dialogs, which is
-  why `galley_action.sh` dispatches on a `case` and the action row is
-  data-driven from day one.
+- **Printer admin actions** — mostly built, contrary to what this entry used to
+  say. `set default` and `Web UI` shipped in v0.4.0 and
+  [#13](https://github.com/ssandys/galley/issues/13) is closed; the
+  `case`-dispatch in `galley_action.sh` and the data-driven action row, which
+  this entry credited as preparation, are now carrying them. Only accept/reject
+  is still unbuilt, tracked as
+  [#23](https://github.com/ssandys/galley/issues/23) — and note that it is an
+  IPP admin operation, so it depends on the same `SystemGroup` membership that
+  pause and resume do (see the README's Troubleshooting section).
 - **Event-driven refresh via D-Bus** — tracked as
   [#14](https://github.com/ssandys/galley/issues/14). No new dependencies, and
   it changes only what *triggers* a refresh, not the data path. Deferred
