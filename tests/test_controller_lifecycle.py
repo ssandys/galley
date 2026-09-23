@@ -24,19 +24,24 @@ FIXTURES = os.path.join(HERE, "fixtures")
 HARNESS = """
 import QtQuick
 import Quickshell
+import "."
 
 // Exit 0 when the controller reached the expected state, 1 otherwise, 2 if it
 // never settled. GALLEY_EXPECT picks which state is expected.
+//
+// Controller is a SINGLETON, so it is addressed by type rather than
+// instantiated, and its configuration arrives through attach() -- a singleton
+// has no caller to bind properties from. attach() also takes consumers above
+// zero, which is what starts the poll: without it shouldRun stays false and
+// the collector never spawns, so this harness would time out rather than fail.
 ShellRoot {
   id: root
 
-  Controller {
-    id: controller
-    settings: ({})
-    collectPath: Quickshell.env("GALLEY_COLLECT_PATH")
+  Component.onCompleted: Controller.attach({
+    settings: ({}),
+    collectPath: Quickshell.env("GALLEY_COLLECT_PATH"),
     actionPath: "/nonexistent/action.sh"
-    panelOpen: false
-  }
+  })
 
   Timer {
     running: true; interval: 3000
@@ -44,9 +49,9 @@ ShellRoot {
       var expect = Quickshell.env("GALLEY_EXPECT")
       var ok
       if (expect === "error") {
-        ok = controller.cupsdState === "error" && controller.collectorError !== ""
+        ok = Controller.cupsdState === "error" && Controller.collectorError !== ""
       } else {
-        ok = controller.cupsdState === "running" && controller.collectorError === ""
+        ok = Controller.cupsdState === "running" && Controller.collectorError === ""
       }
       Qt.exit(ok ? 0 : 1)
     }
@@ -66,7 +71,9 @@ class CollectorSpawnTest(unittest.TestCase):
             # The controller and its JS import, copied rather than imported in
             # place: quickshell takes a config path and resolves QML imports
             # beside it, and the harness must sit in that same directory.
-            for name in ("Controller.qml", "Model.js"):
+            # qmldir too: Controller.qml is a singleton, and the type only
+            # resolves when its qmldir sits beside it in the import directory.
+            for name in ("Controller.qml", "Model.js", "qmldir"):
                 shutil.copy(os.path.join(ROOT, name), os.path.join(tmp, name))
             harness = os.path.join(tmp, "harness.qml")
             with open(harness, "w") as handle:

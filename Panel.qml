@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "."
 import "Model.js" as Model
 
 Panel {
@@ -15,13 +16,20 @@ Panel {
   // Every mutable property, every Process and the poll Timer live in
   // Controller.qml. This file renders and holds view state only: which
   // printer the queue is filtered to, and the theme-derived colors below.
-  Controller {
-    id: controller
-    settings: root.settings
-    panelOpen: root.opened
-    collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py"))
+  // NOT instantiated: Controller.qml is a singleton, so this widget registers
+  // interest in the one shared instance rather than owning its own. The bar
+  // makes a widget per bar surface and a surface per monitor, so an instance
+  // here meant a CUPS poll and a notify-send per monitor -- one printer event
+  // raising two notifications on a two-monitor setup.
+  //
+  // wasOpen goes out with detach() because a surface destroyed while its panel
+  // is open would otherwise leave openPanels counting a panel that is gone.
+  Component.onCompleted: Controller.attach({
+    settings: root.settings,
+    collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py")),
     actionPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_action.sh"))
-  }
+  })
+  Component.onDestruction: Controller.detach({ wasOpen: root.opened })
 
   // View state: the queue filter is a property of what you are looking at,
   // not of the collector, so it stays here.
@@ -54,13 +62,19 @@ Panel {
   }
 
   function visibleJobs() {
-    return Model.filterJobs(controller.snapshot.jobs, root.selectedPrinter)
+    return Model.filterJobs(Controller.snapshot.jobs, root.selectedPrinter)
   }
 
   onOpenedChanged: {
+    // FOLDED into the existing handler, not added beside it. QML rejects a
+    // duplicate handler on one component and the component then fails to
+    // instantiate with NOTHING in the journal -- measured on colophon, where
+    // the widget silently did not exist, attach() never ran, and the poll this
+    // change deduplicates simply never happened at all.
+    Controller.setPanelOpen(!root.opened, root.opened)
     if (opened) {
-      controller.actionError = ""
-      controller.refresh()
+      Controller.actionError = ""
+      Controller.refresh()
     } else {
       selectedPrinter = ""
     }
@@ -95,7 +109,7 @@ Panel {
     // The count is no longer inline — it renders as the badge child below.
     text: root.barIcon
     foreground: {
-      var severity = Model.barSeverity(controller.statusSnapshot())
+      var severity = Model.barSeverity(Controller.statusSnapshot())
       if (severity === "error") return Model.COLOR_ERROR
       if (severity === "warn") return Model.COLOR_WARN
       // Bar chrome convention (WidgetButton's own default, base Ui/Panel,
@@ -104,9 +118,9 @@ Panel {
       // neighbouring widget for legibility except this one.
       return root.barForeground
     }
-    tooltipText: Model.tooltipText(controller.statusSnapshot())
+    tooltipText: Model.tooltipText(Controller.statusSnapshot())
     onPressed: function (which) {
-      if (which === Qt.MiddleButton) { controller.refresh(); return }
+      if (which === Qt.MiddleButton) { Controller.refresh(); return }
       if (root.opened) root.close()
       // No explicit refresh here: onOpenedChanged covers it, and also covers
       // opens triggered via IPC or a keybind, which never reach onPressed.
@@ -148,7 +162,7 @@ Panel {
       Text {
         id: badgeLabel
         anchors.centerIn: parent
-        text: Model.badgeText(controller.statusSnapshot())
+        text: Model.badgeText(Controller.statusSnapshot())
         color: Color.background
         font.family: root.fontFamily
         font.bold: true
@@ -181,8 +195,8 @@ Panel {
       }
       onTextKey: function (t) {
         if (t === "r" || t === "R") {
-          controller.actionError = ""
-          controller.refresh()
+          Controller.actionError = ""
+          Controller.refresh()
         }
       }
 
@@ -208,7 +222,7 @@ Panel {
 
           Text {
             text: {
-              var s = controller.snapshot.summary
+              var s = Controller.snapshot.summary
               if (!s) return ""
               return s.printers + " printers · " + s.activeJobs + " jobs"
             }
@@ -228,11 +242,11 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.spacing.controlPaddingX
             verticalPadding: Style.spacing.controlPaddingY
-            enabled: controller.actionInProgress === ""
+            enabled: Controller.actionInProgress === ""
             opacity: enabled ? 1.0 : 0.4
             // web-ui takes no target, but runAction's signature is
             // (verb, target) and galley_action.sh ignores a stray one.
-            onClicked: controller.runAction("web-ui", "")
+            onClicked: Controller.runAction("web-ui", "")
           }
 
           Button {
@@ -243,7 +257,7 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.spacing.controlPaddingX
             verticalPadding: Style.spacing.controlPaddingY
-            onClicked: controller.refresh()
+            onClicked: Controller.refresh()
           }
         }
 
@@ -255,7 +269,7 @@ Panel {
           spacing: Style.space(6)
 
           Repeater {
-            model: controller.snapshot.printers || []
+            model: Controller.snapshot.printers || []
 
             delegate: BorderSurface {
               required property var modelData
@@ -347,11 +361,11 @@ Panel {
                   spacing: Style.space(8)
 
                   Repeater {
-                    model: controller.showSupplies ? (modelData.supplies || []) : []
+                    model: Controller.showSupplies ? (modelData.supplies || []) : []
                     delegate: Text {
                       required property var modelData
                       text: Model.supplyLabel(modelData)
-                      color: Model.supplyColor(modelData, controller.supplyThreshold, root.dim)
+                      color: Model.supplyColor(modelData, Controller.supplyThreshold, root.dim)
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
                     }
@@ -384,9 +398,9 @@ Panel {
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: controller.actionInProgress === ""
+                    enabled: Controller.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
-                    onClicked: controller.runAction(
+                    onClicked: Controller.runAction(
                       modelData.state === "stopped" ? "resume" : "pause",
                       modelData.name)
                   }
@@ -407,9 +421,9 @@ Panel {
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: controller.actionInProgress === ""
+                    enabled: Controller.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
-                    onClicked: controller.runAction("set-default", modelData.name)
+                    onClicked: Controller.runAction("set-default", modelData.name)
                   }
 
                   Button {
@@ -419,7 +433,7 @@ Panel {
                     // then reported the rest as stderr. The card knows only
                     // queuedJobCount, so ownership comes from the snapshot.
                     readonly property bool mineHere:
-                      Model.hasCancellableJobs(controller.snapshot.jobs,
+                      Model.hasCancellableJobs(Controller.snapshot.jobs,
                                                modelData.name)
                     visible: modelData.queuedJobCount > 0
                     text: "cancel all"
@@ -435,9 +449,9 @@ Panel {
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: mineHere && controller.actionInProgress === ""
+                    enabled: mineHere && Controller.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
-                    onClicked: controller.runAction("cancel-all", modelData.name)
+                    onClicked: Controller.runAction("cancel-all", modelData.name)
                   }
 
                   Item { Layout.fillWidth: true }
@@ -487,7 +501,7 @@ Panel {
         // require printers.length === 0 except "No active jobs", which
         // carries no cupsdState requirement of its own.
         Text {
-          visible: controller.cupsdState === "asleep" && (controller.snapshot.printers || []).length > 0
+          visible: Controller.cupsdState === "asleep" && (Controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
           text: "CUPS idle — showing last known state"
           color: root.dim
@@ -497,9 +511,9 @@ Panel {
         }
 
         Text {
-          visible: controller.cupsdState === "error" && (controller.snapshot.printers || []).length > 0
+          visible: Controller.cupsdState === "error" && (Controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
-          text: "Showing last known data — " + (controller.collectorError || "collector error")
+          text: "Showing last known data — " + (Controller.collectorError || "collector error")
           color: Model.COLOR_ERROR
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -514,7 +528,7 @@ Panel {
         // only one that can be visible when printers are present, so at most
         // one of the four is ever visible together.
         Text {
-          visible: controller.cupsdState === "asleep" && (controller.snapshot.printers || []).length === 0
+          visible: Controller.cupsdState === "asleep" && (Controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "CUPS idle — nothing queued"
           color: root.dim
@@ -524,9 +538,9 @@ Panel {
         }
 
         Text {
-          visible: controller.cupsdState === "error" && (controller.snapshot.printers || []).length === 0
+          visible: Controller.cupsdState === "error" && (Controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
-          text: controller.collectorError || "Collector failed"
+          text: Controller.collectorError || "Collector failed"
           color: Model.COLOR_ERROR
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -535,7 +549,7 @@ Panel {
         }
 
         Text {
-          visible: (controller.snapshot.printers || []).length > 0
+          visible: (Controller.snapshot.printers || []).length > 0
                    && root.visibleJobs().length === 0
           Layout.fillWidth: true
           text: "No active jobs"
@@ -546,7 +560,7 @@ Panel {
         }
 
         Text {
-          visible: controller.cupsdState === "running" && (controller.snapshot.printers || []).length === 0
+          visible: Controller.cupsdState === "running" && (Controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "No printers configured"
           color: root.dim
@@ -649,7 +663,7 @@ Panel {
                   // text teaches you to stop reading the column, and then the
                   // row that matters gets skipped with the rest.
                   readonly property string age:
-                    Model.formatAge(modelData.createdAt, controller.nowSeconds)
+                    Model.formatAge(modelData.createdAt, Controller.nowSeconds)
                   visible: age !== ""
                   text: age
                   color: root.dim
@@ -669,7 +683,7 @@ Panel {
                   text: "✕"
                   foreground: modelData.mine ? Model.COLOR_ERROR : root.dim
                   // _user_cancel_any is 0, so only the owner may cancel.
-                  enabled: modelData.mine && controller.actionInProgress === ""
+                  enabled: modelData.mine && Controller.actionInProgress === ""
                   opacity: enabled ? 1.0 : 0.4
                   tooltipText: modelData.mine
                     ? "Cancel this job"
@@ -678,7 +692,7 @@ Panel {
                   fontSize: Style.font.caption
                   horizontalPadding: Style.space(6)
                   verticalPadding: Style.space(2)
-                  onClicked: controller.runAction("cancel-job", String(modelData.id))
+                  onClicked: Controller.runAction("cancel-job", String(modelData.id))
                 }
               }
             }
@@ -686,9 +700,9 @@ Panel {
         }
 
         Text {
-          visible: controller.actionError !== ""
+          visible: Controller.actionError !== ""
           Layout.fillWidth: true
-          text: controller.actionError
+          text: Controller.actionError
           color: Model.COLOR_ERROR
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

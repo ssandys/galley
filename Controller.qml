@@ -1,3 +1,4 @@
+pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -35,7 +36,60 @@ Item {
   property var settings: ({})
   property string collectPath: ""
   property string actionPath: ""
-  property bool panelOpen: false
+
+  // HOW MANY WIDGETS ARE ALIVE, not how many monitors exist. The bar makes a
+  // widget per bar surface and a surface per monitor, so before this file was
+  // a singleton every Timer, every Process and every notify() in it ran once
+  // per monitor -- including notify-send, so one printer event raised two
+  // notifications on a two-monitor setup.
+  //
+  // Clamped at zero on the way down. bin/dev reloads the plugin in place, and
+  // a reload that recreated widgets without destroying them would otherwise
+  // climb this forever and poll for the life of the shell.
+  property int consumers: 0
+  // Set by the first attach(), so a later surface handing over the same paths
+  // does not churn bound properties every time a monitor is plugged in.
+  property bool configAttached: false
+  // How many panels are open, not whether THIS one is: with several surfaces,
+  // "open" means any of them, and the faster interval applies while any is.
+  property int openPanels: 0
+  readonly property bool shouldRun: root.consumers > 0
+
+  function attach(options) {
+    if (options && !root.configAttached) {
+      if (options.settings) root.settings = options.settings
+      if (options.collectPath) root.collectPath = options.collectPath
+      if (options.actionPath) root.actionPath = options.actionPath
+      root.configAttached = true
+    }
+    root.consumers = root.consumers + 1
+    // Only the FIRST consumer refreshes. Every surface attaches, so
+    // refreshing on each one would put back exactly the duplicate collection
+    // this singleton exists to remove.
+    //
+    // This replaces `Component.onCompleted: refresh()`, which worked while
+    // this file was instantiated -- property bindings are applied before
+    // onCompleted, so collectPath was set by then. A singleton is constructed
+    // the instant its type is first referenced, which is the `Controller` in
+    // `Controller.attach(...)`, so onCompleted ran with collectPath still
+    // empty and the first real poll waited a whole interval. Measured: the
+    // lifecycle harness timed out at 3s waiting for a state the poll had not
+    // yet produced.
+    if (root.consumers === 1) root.refresh()
+  }
+
+  function detach(options) {
+    if (options && options.wasOpen) root.setPanelOpen(true, false)
+    root.consumers = root.consumers > 0 ? root.consumers - 1 : 0
+  }
+
+  // A DELTA, not an absolute: an absolute would let the last panel to change
+  // state speak for every other panel.
+  function setPanelOpen(wasOpen, isOpen) {
+    if (wasOpen === isOpen) return
+    var next = root.openPanels + (isOpen ? 1 : -1)
+    root.openPanels = next > 0 ? next : 0
+  }
 
   // Status is reported separately from content. `snapshot` is the
   // last-known-good content (printer cards, queue rows, counts) and is only
@@ -152,10 +206,10 @@ Item {
 
   Timer {
     id: pollTimer
-    running: true
+    running: root.shouldRun
     repeat: true
     interval: {
-      if (root.panelOpen) return root.openInterval * 1000
+      if (root.openPanels > 0) return root.openInterval * 1000
       var active = root.snapshot.summary
         ? root.snapshot.summary.activeJobs : 0
       return active > 0 ? root.openInterval * 1000 : root.idleInterval * 1000
@@ -292,5 +346,4 @@ Item {
     }
   }
 
-  Component.onCompleted: refresh()
 }
