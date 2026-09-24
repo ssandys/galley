@@ -25,10 +25,13 @@ Panel {
   // wasOpen goes out with detach() because a surface destroyed while its panel
   // is open would otherwise leave openPanels counting a panel that is gone.
   Component.onCompleted: Controller.attach({
-    settings: root.settings,
     collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_collect.py")),
     actionPath: root.pathFromUrl(Qt.resolvedUrl("scripts/galley_action.sh"))
   })
+  // NOT in onCompleted: the bar sets `settings` from its Loader's onLoaded,
+  // after this item has completed, so at completion it is still the empty
+  // default. This fires for that injection and for every later edit (#36).
+  onSettingsChanged: Controller.configure(root.settings)
   Component.onDestruction: Controller.detach({ wasOpen: root.opened })
 
   // View state: the queue filter is a property of what you are looking at,

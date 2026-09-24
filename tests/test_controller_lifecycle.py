@@ -12,6 +12,7 @@ logging is suppressed in this environment). Nothing touches the user's shell,
 their printers, or their config.
 """
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -145,6 +146,11 @@ import Quickshell
 import "."
 
 ShellRoot {
+  id: root
+  property int idleMs: -1
+  property int openMs: -1
+  property int activeMs: -1
+
   function cfg() {
     return {
       settings: ({}),
@@ -279,6 +285,176 @@ class SingletonSharingTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0,
                          "the count did not clamp at zero\n"
                          "%s%s" % (proc.stdout, proc.stderr))
+
+
+@unittest.skipIf(quickshell_missing(), "quickshell is required to run Controller.qml")
+class SettingsDeliveryTest(SingletonSharingTest):
+    """Settings reaching the singleton at all (#36).
+
+    The widget called Controller.attach({settings}) from Component.onCompleted,
+    and attach() latched the first object it saw. The bar sets a widget's
+    settings from its Loader's onLoaded, AFTER the item completes, so what got
+    latched was Ui/Panel.qml's empty default -- every setting fell back to its
+    hardcoded value for good, notification toggles included.
+
+    Inherits SingletonSharingTest only for its harness. Its own tests are
+    re-run here as a side effect, which is harmless.
+    """
+
+    def test_settings_that_arrive_after_attach_still_take_effect(self):
+        # Exactly the order the host produces: attach holding the empty
+        # default, then the real settings.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45,"
+            " supplyLowThreshold: 7, showSupplies: false })",
+            "Controller.idleInterval === 45 && Controller.supplyThreshold === 7"
+            " && Controller.showSupplies === false")
+        self.assertEqual(proc.returncode, 0,
+                         "late settings were ignored\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_a_later_settings_change_replaces_the_earlier_one(self):
+        # The settings UI assigns a new object on every edit; the latest wins.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45 });"
+            " Controller.configure({ pollIntervalIdleSec: 120 })",
+            "Controller.idleInterval === 120")
+        self.assertEqual(proc.returncode, 0,
+                         "the first settings object stuck\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_a_second_surface_attaching_does_not_clobber_settings(self):
+        # Every surface attaches with whatever its widget held at completion,
+        # which is the empty default. Settings must come from configure().
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45 });"
+            " Controller.attach(cfg())",
+            "Controller.idleInterval === 45 && Controller.consumers === 2")
+        self.assertEqual(proc.returncode, 0,
+                         "a later attach wiped the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_clearing_a_setting_puts_its_default_back(self):
+        # configure() REPLACES the settings object; it does not merge into
+        # it. A merge would keep a cleared key's old value forever -- the
+        # settings UI drops a key back to the manifest default by leaving it
+        # out.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45,"
+            " notifyJobFailed: false });"
+            " Controller.configure({})",
+            "Controller.idleInterval === 30"
+            " && Controller.notifyOptions().notifyJobFailed === true")
+        self.assertEqual(proc.returncode, 0,
+                         "a cleared setting kept its old value\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_settings_naming_only_some_keys_leave_the_rest_at_defaults(self):
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ notifyJobCompleted: false })",
+            "Controller.notifyOptions().notifyJobCompleted === false"
+            " && Controller.notifyOptions().notifyJobFailed === true"
+            " && Controller.notifyOptions().notifySupplyLow === true"
+            " && Controller.supplyThreshold === 15"
+            " && Controller.idleInterval === 30")
+        self.assertEqual(proc.returncode, 0,
+                         "an unnamed key lost its default\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_configure_with_nothing_falls_back_to_defaults(self):
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45 });"
+            " Controller.configure(null);"
+            " Controller.configure({ pollIntervalIdleSec: 46 });"
+            " Controller.configure(undefined)",
+            "Controller.idleInterval === 30")
+        self.assertEqual(proc.returncode, 0,
+                         "configure(null/undefined) misbehaved\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_the_poll_timer_runs_on_the_configured_intervals(self):
+        # pollIntervalMs aliases pollTimer.interval itself, so this is the
+        # schedule the timer is really on. It starts on the empty snapshot, so
+        # idle applies first; then an open panel with no jobs; then, panel
+        # closed, an active job -- simulated by setting the snapshot directly
+        # and read back in the same tick, before a poll could replace it.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45,"
+            " pollIntervalOpenSec: 7 });"
+            " root.idleMs = Controller.pollIntervalMs;"
+            " Controller.setPanelOpen(false, true);"
+            " root.openMs = Controller.pollIntervalMs;"
+            " Controller.setPanelOpen(true, false);"
+            " Controller.snapshot = ({ summary: { activeJobs: 1 } });"
+            " root.activeMs = Controller.pollIntervalMs",
+            "root.idleMs === 45000 && root.openMs === 7000"
+            " && root.activeMs === 7000")
+        self.assertEqual(proc.returncode, 0,
+                         "the timer did not follow the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_with_no_settings_the_poll_timer_runs_on_the_default(self):
+        proc, _ = self._run("Controller.attach(cfg())",
+                            "Controller.pollIntervalMs === 30000")
+        self.assertEqual(proc.returncode, 0,
+                         "the default schedule is wrong\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+
+def read(name):
+    with open(os.path.join(ROOT, name)) as handle:
+        return handle.read()
+
+
+def strip_comments(source):
+    # Line comments only, and only where `//` starts the line or follows
+    # whitespace: a URL's `//` follows a colon, so "http://..." survives. The
+    # comments around this wiring NAME everything checked below, and a match
+    # found only in prose must not satisfy -- or fail -- a guard.
+    return re.sub(r"(^|\s)//.*", r"\1", source, flags=re.M)
+
+
+class WidgetWiringTest(unittest.TestCase):
+    """The widget's half of #36, which SettingsDeliveryTest cannot see.
+
+    Those tests call Controller.configure() themselves, so they pass whether
+    or not Panel.qml ever does. Loading Panel.qml for real needs the bar's own
+    Ui components, so these read the source instead: crude, but they fail on
+    exactly the edits that bring #36 back. Static, so unlike the tests above
+    they run without quickshell.
+    """
+
+    def setUp(self):
+        self.panel = strip_comments(read("Panel.qml"))
+        self.controller = strip_comments(read("Controller.qml"))
+
+    def test_the_widget_hands_over_every_settings_change(self):
+        self.assertRegex(
+            self.panel,
+            r"onSettingsChanged:\s*Controller\.configure\(\s*root\.settings\s*\)",
+            "Panel.qml must forward settings from onSettingsChanged: the bar "
+            "injects them after Component.onCompleted, so attach() is too early")
+
+    def test_the_widget_does_not_hand_settings_to_attach(self):
+        start = self.panel.index("Controller.attach(")
+        call = self.panel[start:self.panel.index("})", start) + 2]
+        self.assertNotIn("settings", call,
+                         "attach() runs before the bar injects settings; "
+                         "whatever it is handed there is the empty default")
+
+    def test_attach_does_not_take_settings(self):
+        start = self.controller.index("function attach(options) {")
+        body = self.controller[start:self.controller.index("\n  }\n", start)]
+        self.assertNotIn("settings", body,
+                         "attach() must not latch settings: the first surface "
+                         "attaches holding the empty default (#36)")
 
 
 if __name__ == "__main__":

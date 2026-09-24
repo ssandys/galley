@@ -286,6 +286,53 @@ process.stdout.write(JSON.stringify(out));
 """ % json.dumps(MODEL_JS_PATH)
 
 
+class SettingsManifestTest(unittest.TestCase):
+    """Every setting agrees between manifest.json and Controller.qml.
+
+    SupplyLowThresholdDefaultTest above covers one key seven ways; these cover
+    all of them the three ways that matter. Each mismatch fails silently at
+    runtime: a key read but never declared is never offered by the settings
+    UI, a key declared but never read is a control that does nothing, and a
+    fallback that disagrees with the manifest makes a fresh install behave
+    differently from one whose settings panel has been opened. Comments are
+    stripped (where `//` starts the line or follows whitespace) so prose that
+    names a key does not count as reading it.
+    """
+
+    def setUp(self):
+        self.widget = json.loads(read("manifest.json"))["barWidget"]
+        source = re.sub(r"(^|\s)//.*", r"\1", read("Controller.qml"),
+                        flags=re.M)
+        self.reads = re.findall(
+            r'settingValue\(\s*"([A-Za-z]+)"\s*,\s*([^)]+?)\s*\)', source)
+        self.assertTrue(self.reads, "found no settingValue() reads -- has "
+                                    "the accessor been renamed?")
+
+    def test_defaults_and_schema_agree(self):
+        defaults = self.widget["defaults"]
+        schema = dict((entry["key"], entry) for entry in self.widget["schema"])
+        self.assertEqual(sorted(defaults), sorted(schema))
+        for key, value in defaults.items():
+            with self.subTest(key=key):
+                self.assertEqual(value, schema[key]["defaultValue"])
+
+    def test_every_manifest_default_is_read_with_the_same_fallback(self):
+        found = dict(self.reads)
+        for key, value in self.widget["defaults"].items():
+            with self.subTest(key=key):
+                self.assertIn(key, found,
+                              key + " has a manifest default but "
+                                    "Controller.qml never reads it")
+                self.assertEqual(found[key], json.dumps(value))
+
+    def test_every_setting_the_controller_reads_is_declared(self):
+        schema_keys = [entry["key"] for entry in self.widget["schema"]]
+        for key, _ in self.reads:
+            with self.subTest(key=key):
+                self.assertIn(key, self.widget["defaults"])
+                self.assertIn(key, schema_keys)
+
+
 class WasteTonerExclusionTest(unittest.TestCase):
     """waste-toner must be excluded from low-supply logic in both languages.
 
