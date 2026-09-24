@@ -12,6 +12,7 @@ logging is suppressed in this environment). Nothing touches the user's shell,
 their printers, or their config.
 """
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -330,6 +331,55 @@ class SettingsDeliveryTest(SingletonSharingTest):
         self.assertEqual(proc.returncode, 0,
                          "a later attach wiped the settings\n%s%s"
                          % (proc.stdout, proc.stderr))
+
+
+def read(name):
+    with open(os.path.join(ROOT, name)) as handle:
+        return handle.read()
+
+
+def strip_comments(source):
+    # Line comments only, and only where `//` starts the line or follows
+    # whitespace: a URL's `//` follows a colon, so "http://..." survives. The
+    # comments around this wiring NAME everything checked below, and a match
+    # found only in prose must not satisfy -- or fail -- a guard.
+    return re.sub(r"(^|\s)//.*", r"\1", source, flags=re.M)
+
+
+class WidgetWiringTest(unittest.TestCase):
+    """The widget's half of #36, which SettingsDeliveryTest cannot see.
+
+    Those tests call Controller.configure() themselves, so they pass whether
+    or not Panel.qml ever does. Loading Panel.qml for real needs the bar's own
+    Ui components, so these read the source instead: crude, but they fail on
+    exactly the edits that bring #36 back. Static, so unlike the tests above
+    they run without quickshell.
+    """
+
+    def setUp(self):
+        self.panel = strip_comments(read("Panel.qml"))
+        self.controller = strip_comments(read("Controller.qml"))
+
+    def test_the_widget_hands_over_every_settings_change(self):
+        self.assertRegex(
+            self.panel,
+            r"onSettingsChanged:\s*Controller\.configure\(\s*root\.settings\s*\)",
+            "Panel.qml must forward settings from onSettingsChanged: the bar "
+            "injects them after Component.onCompleted, so attach() is too early")
+
+    def test_the_widget_does_not_hand_settings_to_attach(self):
+        start = self.panel.index("Controller.attach(")
+        call = self.panel[start:self.panel.index("})", start) + 2]
+        self.assertNotIn("settings", call,
+                         "attach() runs before the bar injects settings; "
+                         "whatever it is handed there is the empty default")
+
+    def test_attach_does_not_take_settings(self):
+        start = self.controller.index("function attach(options) {")
+        body = self.controller[start:self.controller.index("\n  }\n", start)]
+        self.assertNotIn("settings", body,
+                         "attach() must not latch settings: the first surface "
+                         "attaches holding the empty default (#36)")
 
 
 if __name__ == "__main__":
