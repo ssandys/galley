@@ -55,9 +55,16 @@ Item {
   property int openPanels: 0
   readonly property bool shouldRun: root.consumers > 0
 
+  // attach() latches only the script paths, which Panel computes itself from
+  // Qt.resolvedUrl and are correct at attach time. It does NOT take settings.
+  // It used to, once, from the widget's Component.onCompleted -- which runs
+  // before the bar injects settings from its Loader's onLoaded -- so it
+  // latched the widget's empty default and every setting silently fell back
+  // to its hardcoded value (#36). It cannot take them conditionally either:
+  // every surface attaches with its own still-empty object, so a monitor
+  // plugged in later would wipe the real settings.
   function attach(options) {
     if (options && !root.configAttached) {
-      if (options.settings) root.settings = options.settings
       if (options.collectPath) root.collectPath = options.collectPath
       if (options.actionPath) root.actionPath = options.actionPath
       root.configAttached = true
@@ -76,6 +83,14 @@ Item {
     // lifecycle harness timed out at 3s waiting for a state the poll had not
     // yet produced.
     if (root.consumers === 1) root.refresh()
+  }
+
+  // Settings arrive here and the LATEST always wins. Panel calls this from
+  // onSettingsChanged, which fires for the bar's late injection and for every
+  // edit in the settings UI. Every surface gets the same settings object, so
+  // last-writer is right. The settingValue() bindings re-evaluate on their own.
+  function configure(settings) {
+    root.settings = settings ? settings : ({})
   }
 
   function detach(options) {

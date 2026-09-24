@@ -281,5 +281,56 @@ class SingletonSharingTest(unittest.TestCase):
                          "%s%s" % (proc.stdout, proc.stderr))
 
 
+@unittest.skipIf(quickshell_missing(), "quickshell is required to run Controller.qml")
+class SettingsDeliveryTest(SingletonSharingTest):
+    """Settings reaching the singleton at all (#36).
+
+    The widget called Controller.attach({settings}) from Component.onCompleted,
+    and attach() latched the first object it saw. The bar sets a widget's
+    settings from its Loader's onLoaded, AFTER the item completes, so what got
+    latched was Ui/Panel.qml's empty default -- every setting fell back to its
+    hardcoded value for good, notification toggles included.
+
+    Inherits SingletonSharingTest only for its harness. Its own tests are
+    re-run here as a side effect, which is harmless.
+    """
+
+    def test_settings_that_arrive_after_attach_still_take_effect(self):
+        # Exactly the order the host produces: attach holding the empty
+        # default, then the real settings.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45,"
+            " supplyLowThreshold: 7, showSupplies: false })",
+            "Controller.idleInterval === 45 && Controller.supplyThreshold === 7"
+            " && Controller.showSupplies === false")
+        self.assertEqual(proc.returncode, 0,
+                         "late settings were ignored\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_a_later_settings_change_replaces_the_earlier_one(self):
+        # The settings UI assigns a new object on every edit; the latest wins.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45 });"
+            " Controller.configure({ pollIntervalIdleSec: 120 })",
+            "Controller.idleInterval === 120")
+        self.assertEqual(proc.returncode, 0,
+                         "the first settings object stuck\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_a_second_surface_attaching_does_not_clobber_settings(self):
+        # Every surface attaches with whatever its widget held at completion,
+        # which is the empty default. Settings must come from configure().
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45 });"
+            " Controller.attach(cfg())",
+            "Controller.idleInterval === 45 && Controller.consumers === 2")
+        self.assertEqual(proc.returncode, 0,
+                         "a later attach wiped the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+
 if __name__ == "__main__":
     unittest.main()
