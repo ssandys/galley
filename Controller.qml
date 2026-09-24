@@ -157,6 +157,11 @@ Item {
   readonly property bool showSupplies: settingValue("showSupplies", true) === true
   readonly property int openInterval: settingValue("pollIntervalOpenSec", 3)
   readonly property int idleInterval: settingValue("pollIntervalIdleSec", 30)
+  // The poll timer's LIVE interval, read-only, for
+  // tests/test_controller_lifecycle.py: the intervals above are only numbers
+  // until pollTimer's binding turns them into a schedule, and an alias reads
+  // the timer itself rather than a copy of its formula that could drift.
+  readonly property alias pollIntervalMs: pollTimer.interval
 
   // The armed set records no threshold of its own, and Model.supplyRearmed()
   // is relative to the current one -- so after a change, an entry armed under

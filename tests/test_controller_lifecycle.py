@@ -146,6 +146,11 @@ import Quickshell
 import "."
 
 ShellRoot {
+  id: root
+  property int idleMs: -1
+  property int openMs: -1
+  property int activeMs: -1
+
   function cfg() {
     return {
       settings: ({}),
@@ -330,6 +335,76 @@ class SettingsDeliveryTest(SingletonSharingTest):
             "Controller.idleInterval === 45 && Controller.consumers === 2")
         self.assertEqual(proc.returncode, 0,
                          "a later attach wiped the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_clearing_a_setting_puts_its_default_back(self):
+        # configure() REPLACES the settings object; it does not merge into
+        # it. A merge would keep a cleared key's old value forever -- the
+        # settings UI drops a key back to the manifest default by leaving it
+        # out.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45,"
+            " notifyJobFailed: false });"
+            " Controller.configure({})",
+            "Controller.idleInterval === 30"
+            " && Controller.notifyOptions().notifyJobFailed === true")
+        self.assertEqual(proc.returncode, 0,
+                         "a cleared setting kept its old value\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_settings_naming_only_some_keys_leave_the_rest_at_defaults(self):
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ notifyJobCompleted: false })",
+            "Controller.notifyOptions().notifyJobCompleted === false"
+            " && Controller.notifyOptions().notifyJobFailed === true"
+            " && Controller.notifyOptions().notifySupplyLow === true"
+            " && Controller.supplyThreshold === 15"
+            " && Controller.idleInterval === 30")
+        self.assertEqual(proc.returncode, 0,
+                         "an unnamed key lost its default\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_configure_with_nothing_falls_back_to_defaults(self):
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45 });"
+            " Controller.configure(null);"
+            " Controller.configure({ pollIntervalIdleSec: 46 });"
+            " Controller.configure(undefined)",
+            "Controller.idleInterval === 30")
+        self.assertEqual(proc.returncode, 0,
+                         "configure(null/undefined) misbehaved\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_the_poll_timer_runs_on_the_configured_intervals(self):
+        # pollIntervalMs aliases pollTimer.interval itself, so this is the
+        # schedule the timer is really on. It starts on the empty snapshot, so
+        # idle applies first; then an open panel with no jobs; then, panel
+        # closed, an active job -- simulated by setting the snapshot directly
+        # and read back in the same tick, before a poll could replace it.
+        proc, _ = self._run(
+            "Controller.attach(cfg());"
+            " Controller.configure({ pollIntervalIdleSec: 45,"
+            " pollIntervalOpenSec: 7 });"
+            " root.idleMs = Controller.pollIntervalMs;"
+            " Controller.setPanelOpen(false, true);"
+            " root.openMs = Controller.pollIntervalMs;"
+            " Controller.setPanelOpen(true, false);"
+            " Controller.snapshot = ({ summary: { activeJobs: 1 } });"
+            " root.activeMs = Controller.pollIntervalMs",
+            "root.idleMs === 45000 && root.openMs === 7000"
+            " && root.activeMs === 7000")
+        self.assertEqual(proc.returncode, 0,
+                         "the timer did not follow the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_with_no_settings_the_poll_timer_runs_on_the_default(self):
+        proc, _ = self._run("Controller.attach(cfg())",
+                            "Controller.pollIntervalMs === 30000")
+        self.assertEqual(proc.returncode, 0,
+                         "the default schedule is wrong\n%s%s"
                          % (proc.stdout, proc.stderr))
 
 
