@@ -163,6 +163,7 @@ Panel {
       anchors.verticalCenterOffset: -button.fontSize * 0.5
 
       Text {
+        textFormat: Text.PlainText
         id: badgeLabel
         anchors.centerIn: parent
         text: Model.badgeText(Controller.statusSnapshot())
@@ -215,6 +216,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
+            textFormat: Text.PlainText
             text: root.barIcon + "  Galley"
             color: root.fg
             font.family: root.fontFamily
@@ -224,6 +226,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             text: {
               var s = Controller.snapshot.summary
               if (!s) return ""
@@ -309,6 +312,7 @@ Panel {
                   spacing: Style.space(6)
 
                   Text {
+                    textFormat: Text.PlainText
                     text: "●"
                     color: Model.printerColor(modelData, root.fg)
                     font.family: root.fontFamily
@@ -316,6 +320,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     text: modelData.name + (modelData.isDefault ? "  ★" : "")
                     color: root.fg
                     font.family: root.fontFamily
@@ -326,6 +331,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     // Model.reasonText, not stateMessage-or-state: many CUPS
                     // backends leave printer-state-message empty, and this line
                     // then showed the bare word "stopped" while the cause sat
@@ -343,6 +349,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   visible: text !== ""
                   text: {
                     var parts = []
@@ -366,6 +373,7 @@ Panel {
                   Repeater {
                     model: Controller.showSupplies ? (modelData.supplies || []) : []
                     delegate: Text {
+                      textFormat: Text.PlainText
                       required property var modelData
                       text: Model.supplyLabel(modelData)
                       color: Model.supplyColor(modelData, Controller.supplyThreshold, root.dim)
@@ -377,6 +385,7 @@ Panel {
                   Item { Layout.fillWidth: true }
 
                   Text {
+                    textFormat: Text.PlainText
                     text: modelData.queuedJobCount === 1
                       ? "1 job" : modelData.queuedJobCount + " jobs"
                     color: root.dim
@@ -471,6 +480,7 @@ Panel {
           spacing: Style.space(6)
 
           Text {
+            textFormat: Text.PlainText
             text: root.selectedPrinter === ""
               ? "QUEUE" : "QUEUE · " + root.selectedPrinter
             color: root.dim
@@ -504,6 +514,7 @@ Panel {
         // require printers.length === 0 except "No active jobs", which
         // carries no cupsdState requirement of its own.
         Text {
+          textFormat: Text.PlainText
           visible: Controller.cupsdState === "asleep" && (Controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
           text: "CUPS idle — showing last known state"
@@ -514,6 +525,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: Controller.cupsdState === "error" && (Controller.snapshot.printers || []).length > 0
           Layout.fillWidth: true
           text: "Showing last known data — " + (Controller.collectorError || "collector error")
@@ -531,6 +543,7 @@ Panel {
         // only one that can be visible when printers are present, so at most
         // one of the four is ever visible together.
         Text {
+          textFormat: Text.PlainText
           visible: Controller.cupsdState === "asleep" && (Controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "CUPS idle — nothing queued"
@@ -541,6 +554,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: Controller.cupsdState === "error" && (Controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: Controller.collectorError || "Collector failed"
@@ -552,6 +566,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: (Controller.snapshot.printers || []).length > 0
                    && root.visibleJobs().length === 0
           Layout.fillWidth: true
@@ -563,6 +578,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: Controller.cupsdState === "running" && (Controller.snapshot.printers || []).length === 0
           Layout.fillWidth: true
           text: "No printers configured"
@@ -596,6 +612,7 @@ Panel {
                 spacing: Style.space(6)
 
                 Text {
+                  textFormat: Text.PlainText
                   text: String(modelData.id)
                   color: root.dim
                   font.family: root.fontFamily
@@ -604,6 +621,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: Model.jobGlyph(modelData.state)
                   // Accent, not a semantic error/warning colour: a printing job
                   // is normal activity, and this follows the user's theme.
@@ -613,6 +631,12 @@ Panel {
                 }
 
                 Text {
+                  // PlainText on every Text, this one first: a job name is
+                  // whatever its submitter typed, and the default AutoText
+                  // rendered <img src="https://..."> by fetching it, so opening
+                  // the panel told a stranger your address. Elision is not
+                  // sanitizing. Guarded by tests/test_plain_text.py.
+                  textFormat: Text.PlainText
                   text: modelData.name
                   color: root.fg
                   font.family: root.fontFamily
@@ -622,6 +646,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   // Why this job is not moving. job-state-reasons was collected
                   // and normalized from the start and then read by nothing, so a
                   // stalled job looked exactly like a queued one. Present only
@@ -646,6 +671,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   visible: root.selectedPrinter === ""
                   text: modelData.printer
                   color: root.dim
@@ -654,6 +680,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   // How long this job has been waiting. time-at-creation was
                   // collected and normalized to createdAt from the start and
                   // then read by nothing, so a job pending forty seconds and a
@@ -675,6 +702,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: modelData.pages
                     ? modelData.pages + "pg" : Model.formatSize(modelData.sizeKb)
                   color: root.dim
@@ -703,6 +731,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: Controller.actionError !== ""
           Layout.fillWidth: true
           text: Controller.actionError
@@ -714,6 +743,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           text: "r refreshes · esc clears filter, then closes"
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.3)
