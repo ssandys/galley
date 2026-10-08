@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "."
 import "Model.js" as Model
@@ -48,7 +49,7 @@ Panel {
   // because F02F reads optically off-centre under the bar's open-panel mark,
   // which Bar.qml centres on the slot and gives no way to shift.
   readonly property string barIcon: "\u{F042A}"
-  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+  readonly property color fg: root.bar ? root.bar.foreground : Commons.Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
 
@@ -140,15 +141,15 @@ Panel {
       width: Math.max(9, button.fontSize * 0.85)
       height: width
       radius: width / 2
-      color: Color.accent
+      color: Commons.Color.accent
       // The 1px ring separates the badge from the glyph underneath; without
-      // it the two shapes smear together. Deliberately Color.background, not
-      // Color.bar.background: the latter resolves through the theme's
+      // it the two shapes smear together. Deliberately Commons.Color.background, not
+      // Commons.Color.bar.background: the latter resolves through the theme's
       // bar.background-alpha, so on a translucent bar the ring itself would
       // go translucent and reintroduce the smear the ring exists to prevent.
-      // Color.background is the foundational, always-opaque token — the same
+      // Commons.Color.background is the foundational, always-opaque token — the same
       // one badgeLabel below uses for its text.
-      borderSpec: Border.flat(Color.background, 1)
+      borderSpec: Border.flat(Commons.Color.background, 1)
 
       // glyphPaintedWidth, not labelWidth: BarIconButton hides WidgetButton's
       // own label (labelVisible: false) and paints through OpticalGlyph, so
@@ -167,7 +168,7 @@ Panel {
         id: badgeLabel
         anchors.centerIn: parent
         text: Model.badgeText(Controller.statusSnapshot())
-        color: Color.background
+        color: Commons.Color.background
         font.family: root.fontFamily
         font.bold: true
         // 0.66, not the 0.72 TailscaleIcon.qml uses — that was tuned for a
@@ -625,7 +626,7 @@ Panel {
                   text: Model.jobGlyph(modelData.state)
                   // Accent, not a semantic error/warning colour: a printing job
                   // is normal activity, and this follows the user's theme.
-                  color: modelData.state === "processing" ? Color.accent : root.dim
+                  color: modelData.state === "processing" ? Commons.Color.accent : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }
